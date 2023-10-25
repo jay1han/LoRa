@@ -47,8 +47,24 @@ void aht10Init() {
     Serial.println(" failed");
 }
 
+#define NUM_TESTS 3
+typedef struct test_t {
+    byte header;
+    void (*maker)(test_t &);
+    int size;
+    byte data[200];
+} Test;
+void makeBal(Test &test);
+void makeCellar(Test &test);
+void makeTest(Test &test);
+Test Tests[NUM_TESTS] = {
+    {ID_CELLAR, makeCellar, 24 * 3 * 2, {}},
+    {ID_BAL, makeBal, 3, {}},
+    {ID_TEST, makeTest, 0, {}}
+};
+
 void setup() {
-    Serial.begin(115200);
+    Serial.begin(921600);
 
     pinMode(PIN_LED, OUTPUT);
     setupEasyNeoPixels(PIN_LED, 1);
@@ -72,50 +88,40 @@ void setup() {
     aht10Init();
 
     writeEasyNeoPixel(0, 0, 0, LED_POWER);
+
+    sendTest(0);
 }
 
-#define NUM_TESTS 3
-typedef struct test_t {
-    byte header;
-    void (*maker)(test_t &);
-    int size;
-    byte data[200];
-} Test;
-void makeBal(Test &test);
-void makeCellar(Test &test);
-void makeTest(Test &test);
-Test Tests[NUM_TESTS] = {
-    {ID_BAL, makeBal, 3, {}},
-    {ID_CELLAR, makeCellar, 24 * 3 * 2, {}},
-    {ID_TEST, makeTest, 0, {}}
-};
+void sendTest(int i) {
+    Serial.printf("Sending test item %d... ", i);
+    Test test = Tests[i];
+    test.maker(test);
+        
+    writeEasyNeoPixel(0, LED_POWER3, LED_POWER2, 0);
+    unsigned int txTime = millis();
+    if (LoRa.beginPacket() == 0) {
+        Serial.println("can't start packet");
+    } else {
+        LoRa.write(ID_HEADER);
+        LoRa.write(test.header);
+        for (int j = 0; j < test.size; j++) {
+            LoRa.write(test.data[j]);
+        }
+        if (LoRa.endPacket() == 0) {
+            Serial.println("can't finish packet");
+        } else {
+            Serial.printf("Sent in %dms\n", millis() - txTime);
+        }
+    }
+    writeEasyNeoPixel(0, 0, 0, LED_POWER);
+}
 
 int step = 1;
 void loop() {
     Serial.printf("Sending %d\n", step);
 
-    for (int i = 0; i < NUM_TESTS; i++) {
-        Serial.printf("Sending test item %d... ", i);
-        Test test = Tests[i];
-        test.maker(test);
-        
-        unsigned int txTime = millis();
-        writeEasyNeoPixel(0, LED_POWER3, LED_POWER2, 0);
-        if (LoRa.beginPacket() == 0) {
-            Serial.println("can't start packet");
-        } else {
-            LoRa.write(ID_HEADER);
-            LoRa.write(test.header);
-            for (int j = 0; j < test.size; j++) {
-                LoRa.write(test.data[j]);
-            }
-            if (LoRa.endPacket() == 0) {
-                Serial.println("can't finish packet");
-            } else {
-                Serial.printf("Sent in %dms\n", millis() - txTime);
-            }
-        }
-        writeEasyNeoPixel(0, 0, 0, LED_POWER);
+    for (int i = 1; i < NUM_TESTS; i++) {
+        sendTest(i);
         sleep(1);
     }
     
