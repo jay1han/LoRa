@@ -16,14 +16,14 @@
 #define LORA_MISO    8
 #define LORA_INT     6
 
+#define I2C_AHT10    0x38
+#define I2C_SCL      5
+#define I2C_SDA      1
+
 #define ID_HEADER    0x92
 #define ID_BAL       0xBA
 #define ID_CELLAR    0xCE
 #define ID_TEST      0xA5
-
-#define I2C_AHT10    0x38
-#define I2C_SCL      5
-#define I2C_SDA      1
 
 void aht10Init() {
     Wire.begin(I2C_SDA, I2C_SCL, 400000);
@@ -92,7 +92,6 @@ Test Tests[NUM_TESTS] = {
 
 int step = 1;
 void loop() {
-    writeEasyNeoPixel(0, LED_POWER3, LED_POWER2, 0);
     Serial.printf("Sending %d\n", step);
 
     for (int i = 0; i < NUM_TESTS; i++) {
@@ -101,6 +100,7 @@ void loop() {
         test.maker(test);
         
         unsigned int txTime = millis();
+        writeEasyNeoPixel(0, LED_POWER3, LED_POWER2, 0);
         if (LoRa.beginPacket() == 0) {
             Serial.println("can't start packet");
         } else {
@@ -115,9 +115,10 @@ void loop() {
                 Serial.printf("Sent in %dms\n", millis() - txTime);
             }
         }
+        writeEasyNeoPixel(0, 0, 0, LED_POWER);
+        sleep(1);
     }
     
-    writeEasyNeoPixel(0, 0, 0, LED_POWER);
     step ++;
 }
 
