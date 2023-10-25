@@ -38,13 +38,13 @@ struct {
 
 #define SSID         "HORS SERVICE"
 #define PASS         "babeface00"
-WiFiClient wifiClient;
+WiFiClient wifiClient(2048);
 
 #define MQTT_SERVER  "jayhan.name"
 #define MQTT_PORT    1883
 #define MQTT_TOPIC   "LoRa"
 #define MQTT_CLIENT  "LoRa2MQTT"
-MQTTClient mqttClient;
+MQTTClient mqttClient(1024);
 
 int blink = 0;
 unsigned int blinkTime;
@@ -187,16 +187,17 @@ char *parseBal(int length, byte *payload, int rssi, float snr) {
 
 char *parseCellar(int length, byte *payload, int rssi, float snr) {
     int dataSize = length / 2;
-    char *message = (char*)malloc(7 * dataSize + 1 + INFO_SIZE);
+    char *message = (char*)malloc(8 * dataSize + 1 + INFO_SIZE);
     
     byte *data = payload;
     char *string = message;
     for (int item = 0; item < dataSize; item++) {
         int temperature = data[0];
+        if (temperature >= 128) temperature -= 256;
         if (temperature > 99) temperature = 99;
         int humidity = data[1];
         if (humidity > 99) humidity = 99;
-        sprintf(string, "(%02d,%02d)", temperature, humidity);
+        sprintf(string, "(%+03d,%02d)", temperature, humidity);
         
         string += strlen(string);
         data += 2;
