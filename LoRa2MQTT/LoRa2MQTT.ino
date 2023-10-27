@@ -5,22 +5,19 @@
 #include <MQTT.h>
 #include <Esp.h>
 
+char VERSION_STR[30] = "v100 ";
+
 #define PIN_LED      15
 
-#define LORA_INT     40
-#define LORA_MOSI    38
-#define LORA_SS      36
-#define LORA_MISO    39
+#define LORA_RST     39
 #define LORA_SCK     37
-#define LORA_RST     35
+#define LORA_MISO    35
+#define LORA_SS      33
+#define LORA_MOSI    18
+#define LORA_INT     16
 
-// These pins are for structural integrity
-#define MUX_GND_1    33
-#define MUX_GND_2    7
-#define MUX_3V3_1    34
-#define MUX_3V3_2    9
-#define MUX_3V3_3    16
-#define MUX_5V       18
+#define I2C_SCL      3
+#define I2C_SDA      5
 
 #define SSID         "HORS SERVICE"
 #define PASS         "babeface00"
@@ -34,8 +31,6 @@ MQTTClient mqttClient(1024);
 // ----------------------------
 // I2C for OLED display SSD1306
 
-#define I2C_SCL      11
-#define I2C_SDA      12
 #define I2C_ADDR     0x3C
 
 #define FONT_WIDTH    FONT_WIDTH_16
@@ -280,7 +275,8 @@ void parseCellar(int length, byte *payload, char *message) {
 void setup() {
     Serial.begin(921600);
     delay(1000);
-    Serial.println("Starting");
+    Serial.print("Starting ");
+    Serial.println(VERSION_STR);
 
     pinMode(PIN_LED, OUTPUT);
     digitalWrite(PIN_LED, HIGH);
@@ -313,7 +309,8 @@ void setup() {
             ESP.restart();
         }
     }
-    Serial.println(WiFi.localIP());
+    strcat(VERSION_STR, (char*)WiFi.localIP().toString().c_str());
+    Serial.println(VERSION_STR);
 
     mqttClient.begin(MQTT_SERVER, wifiClient);
     mqttClient.setKeepAlive(3600);
@@ -322,9 +319,9 @@ void setup() {
         delay(1000);
         ESP.restart();
     }
-    mqttClient.publish(MQTT_TOPIC, WiFi.localIP().toString().c_str(), true, 0);
+    mqttClient.publish(MQTT_TOPIC, VERSION_STR, true, 0);
     Serial.println("MQTT connected");
-    writeDisplay(0, 0, (char*)WiFi.localIP().toString().c_str());
+    writeDisplay(0, 0, VERSION_STR);
     digitalWrite(PIN_LED, LOW);
 
 #if CONTINUOUS      
