@@ -5,7 +5,7 @@
 #include <MQTT.h>
 #include <Esp.h>
 
-char VERSION_STR[30] = "v100 ";
+char VERSION[30] = "v000 ";
 
 #define PIN_LED      15
 
@@ -276,7 +276,7 @@ void setup() {
     Serial.begin(921600);
     delay(1000);
     Serial.print("Starting ");
-    Serial.println(VERSION_STR);
+    Serial.println(VERSION);
 
     pinMode(PIN_LED, OUTPUT);
     digitalWrite(PIN_LED, HIGH);
@@ -309,8 +309,8 @@ void setup() {
             ESP.restart();
         }
     }
-    strcat(VERSION_STR, (char*)WiFi.localIP().toString().c_str());
-    Serial.println(VERSION_STR);
+    strcat(VERSION, (char*)WiFi.localIP().toString().c_str());
+    Serial.println(VERSION);
 
     mqttClient.begin(MQTT_SERVER, wifiClient);
     mqttClient.setKeepAlive(3600);
@@ -319,9 +319,9 @@ void setup() {
         delay(1000);
         ESP.restart();
     }
-    mqttClient.publish(MQTT_TOPIC, VERSION_STR, true, 0);
+    mqttClient.publish(MQTT_TOPIC, VERSION, true, 0);
     Serial.println("MQTT connected");
-    writeDisplay(0, 0, VERSION_STR);
+    writeDisplay(0, 0, VERSION);
     digitalWrite(PIN_LED, LOW);
 
 #if CONTINUOUS      
