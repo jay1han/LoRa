@@ -4,7 +4,6 @@
 #include <Wire.h>
 #include <Esp.h>
 #include "FFat.h"
-#include "driver/uart.h"
 
 char VERSION[30] = "v000 ";
 
@@ -13,7 +12,7 @@ char VERSION[30] = "v000 ";
 #define UART_RX    20
 #define PIN_ADC    0
 #define I2C_SDA    1
-#define I2C_SCL    2
+#define I2C_SCL    3
 #define I2C_AHT10  0x38
 
 #define LORA_POWER 4
@@ -28,40 +27,70 @@ char VERSION[30] = "v000 ";
 #define HISTORY_OLD "/history.old"
 #define HISTORY_NEW "/history.new"
 
-#define SLEEP_TIME_FULL  (3600 * 1000000)
-#define SLEEP_TIME_RETRY (600 * 1000000)
-uint64_t sleepTime;
+#define SLEEP_SECONDS_FULL  3600
+#define SLEEP_SECONDS_RETRY 600
+unsigned int sleepSeconds;
 #define MAX_HISTORY    (3 * 24)
 typedef struct {
     time_t time;
     float temperature;
     float humidity;
 } HistoryItem;
+#define ID_HEADER    0x92
+#define ID_CELLAR    0xCE
 
 // Everything happens in setup()
+
+void writeItemLoRa(HistoryItem item) {
+    byte temperature = 128, humidity = 0;
+    
+    if (int(item.temperature) < 0)
+        temperature = 255 - int(item.temperature);
+    else
+        temperature = int(item.temperature);
+    humidity = int(item.humidity);
+    
+    LoRa.write(item.time >> 24);
+    LoRa.write((item.time >> 16) & 0xFF);
+    LoRa.write((item.time >> 8) & 0xFF);
+    LoRa.write(item.time & 0xFF);
+    LoRa.write(temperature);
+    LoRa.write(humidity);
+}
+
+void writeHeaderLoRa(int pageCount, int battery) {
+    Serial.printf("LoRa page %d ", pageCount);
+    LoRa.write(ID_HEADER);
+    LoRa.write(ID_CELLAR);
+    LoRa.write(pageCount);
+    LoRa.write(battery / 100);
+    LoRa.write(battery % 100);
+}
 
 unsigned long processTime;
 void setup() {
     processTime = millis();
-    sleepTime = SLEEP_TIME_RETRY; // In case something goes wrong
-    uart_set_pin(UART_NUM_0, UART_TX, UART_RX, -1, -1);
-    Serial.begin(115200);
+    sleepSeconds = SLEEP_SECONDS_RETRY; // In case something goes wrong
+    Serial.begin(115200, SERIAL_8N1, UART_RX, UART_TX);
 
-// Initialize LoRa module    
-    pinMode(LORA_POWER, OUTPUT);
-    digitalWrite(LORA_POWER, HIGH);
+// Initialize pins    
     pinMode(PIN_ADC, ANALOG);
     adcAttachPin(PIN_ADC);
     pinMode(PIN_LED, INPUT);
+
+// Initialize LoRa module
+    pinMode(LORA_POWER, OUTPUT);
+    digitalWrite(LORA_POWER, HIGH);
     SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
     LoRa.setPins(LORA_SS, LORA_RST);
     if (LoRa.begin(433E6) == 0) {
         Serial.println("LoRa begin fail");
         return;
     } else {
-        LoRa.setSignalBandwidth(7.8E3);
-        LoRa.setSpreadingFactor(12);
-        LoRa.enableCrc();
+        LoRa.setSpreadingFactor(10);
+        LoRa.setSignalBandwidth(125E3);
+        LoRa.setCodingRate4(8);
+        Serial.println("LoRa init OK");
     }
 
 // Initialize AHT10
@@ -92,9 +121,9 @@ void setup() {
     }
 
 // Read AHT10 data
-    float temperature = -50.0, humidity = 0.0;
     int length = 0;
     byte buffer[6];
+    float temperature, humidity;
     
     Serial.print("AHT10 read data... ");
     unsigned long aht10Time = millis();
@@ -136,8 +165,9 @@ void setup() {
         mV += analogReadMilliVolts(PIN_ADC);
         delay(10);
     }
-    float Voltage = mV / 1000.0;
-    Serial.printf("Battery %.2fV\n", Voltage);
+    float voltage = mV / 1000.0;
+    Serial.printf("Battery %.2fV\n", voltage);
+    int battery = int(voltage * 100);
 
 // Build history data item
     if (!FFat.begin(true)) {
@@ -151,96 +181,103 @@ void setup() {
     thisItem.humidity    = humidity;
     
 // Write history file
-    File historyFile = FFat.open(HISTORY_CSV, FILE_READ);
-    File updateFile  = FFat.open(HISTORY_NEW, FILE_WRITE);
+    File updateFile  = FFat.open(HISTORY_NEW, FILE_WRITE, true);
 
-    if (historyFile && updateFile) {
+    if (updateFile) {
+        Serial.print("Updating file .");
         updateFile.write((byte*)&thisItem, sizeof(HistoryItem));
-        int historySize = 1;
-        HistoryItem backupItem;
-        while(historyFile.available() && historySize < MAX_HISTORY) {
-            historyFile.read((byte*)&backupItem, sizeof(HistoryItem));
-            updateFile.write((byte*)&backupItem, sizeof(HistoryItem));
-            historySize ++;
+
+        File historyFile = FFat.open(HISTORY_CSV, FILE_READ);
+        if (historyFile) {
+            int historySize = 1;
+            HistoryItem backupItem;
+            while(historyFile.available() && historySize < MAX_HISTORY) {
+                historyFile.read((byte*)&backupItem, sizeof(HistoryItem));
+                updateFile.write((byte*)&backupItem, sizeof(HistoryItem));
+                historySize ++;
+                Serial.print(".");
+            }
+            Serial.printf(" %d records\n", historySize);
+            historyFile.close();
+        } else {
+            Serial.println("Can't open history file, continuing");
         }
-        historyFile.close();
         updateFile.close();
 
         FFat.rename(HISTORY_CSV, HISTORY_OLD);
         FFat.rename(HISTORY_NEW, HISTORY_CSV);
         FFat.remove(HISTORY_OLD);
     } else {
-        Serial.println("Can't open files");
+        Serial.println("Can't open update file, stopping");
         return;
     }
 
 // Send LoRa packet
     if (LoRa.beginPacket() == 0) {
-        Serial.println("\nLoRa can't start packet");
+        Serial.println("LoRa can't start packet");
         return;
     } else {
         File historyFile = FFat.open(HISTORY_CSV, FILE_READ);
         HistoryItem historyItem;
         byte temperature, humidity;
         unsigned long time;
-        int itemCount = 0;
+        int itemCount = 0, pageCount = 0;
 
-        Serial.print("Sending history data");
+        writeHeaderLoRa(pageCount, battery);
+
         while(historyFile.available()) {
             historyFile.read((byte*)&historyItem, sizeof(HistoryItem));
-            if (int(historyItem.temperature) < 0)
-                temperature = 255 - int(historyItem.temperature);
-            else
-                temperature = int(historyItem.temperature);
-            humidity = int(historyItem.humidity);
-            time = historyItem.time;
-            LoRa.write(time >> 24);
-            LoRa.write((time >> 16) & 0xFF);
-            LoRa.write((time >> 8) & 0xFF);
-            LoRa.write(time & 0xFF);
-            LoRa.write(temperature);
-            LoRa.write(humidity);
+            writeItemLoRa(historyItem);
+            Serial.print(".");
             itemCount ++;
 
             // Start a new packet after 24 hours of history
             if (itemCount == 24) {
                 if (LoRa.endPacket() == 0) {
-                    Serial.println(" can't send packet");
+                    Serial.println("can't send packet");
                     return;
                 } else {
-                    if (LoRa.beginPacket() == 0) {
-                        Serial.println("\nCan't start more packets");
-                        return;
-                    } else {
-                        Serial.print(".");
-                    }
+                    Serial.printf(" %d items\n", itemCount);
                     itemCount = 0;
+                    pageCount ++;
+                    if (historyFile.available()) {
+                        if (LoRa.beginPacket() == 0) {
+                            Serial.println("Can't start next packet");
+                            return;
+                        } else {
+                            writeHeaderLoRa(pageCount, battery);
+                            writeItemLoRa(thisItem);
+                        }
+                    }
                 }
             }
         }
         historyFile.close();
         
         // All done, send final packet
-        if (LoRa.beginPacket() == 0) {
-            Serial.println(" can't finish packet");
-            return;
-        } else {
-            Serial.println("Sent ");
+        if (itemCount > 0) {
+            if (LoRa.endPacket() == 0) {
+                Serial.println("can't finish packet");
+                return;
+            } else {
+                Serial.printf(" %d items. END\n", itemCount);
+            }
         }
     }
 
 // All good, sleep for full period
-    sleepTime = SLEEP_TIME_FULL;
+    sleepSeconds = SLEEP_SECONDS_FULL;
 }
 
 // loop() does the cleanup and goes to sleep
 void loop() {
-    LoRa.end();
+    LoRa.sleep();
     digitalWrite(LORA_POWER, LOW);
-    uint64_t totalTime = (millis() - processTime + 1) * 1000;
-    Serial.printf("Processing time %d ms\n", millis() - processTime);
+    uint64_t sleepTime = (sleepSeconds * 1000000L) - (millis() - processTime + 1) * 1000L;
+    Serial.printf("Processing time %d ms, sleep for %ld seconds\n",
+                  millis() - processTime, sleepTime / 1000000);
     Serial.flush();
 
-    esp_sleep_enable_timer_wakeup(sleepTime - totalTime);
+    esp_sleep_enable_timer_wakeup(sleepTime);
     esp_deep_sleep_start();
 }

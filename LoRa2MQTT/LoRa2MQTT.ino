@@ -253,19 +253,31 @@ void parseBal(int length, byte *payload, char *message) {
 }
 
 void parseCellar(int length, byte *payload, char *message) {
-    int numData = length / 2;
-    byte *data = payload;
-    char *string = message;
+    int numData = length / 6;
+    int pageCount = payload[0];
+    float battery = payload[1] + ((float)payload[2] / 100);
+    unsigned long epoch = (payload[3] << 24) | (payload[4] << 16) | (payload[5] << 8) | payload[6];
+    byte *data = payload + 3;
+    sprintf(message, "%.2f[%d]", battery, pageCount);
+    char *string = message + strlen(message);
+    
     for (int item = 0; item < numData; item++) {
-        int temperature = data[0];
-        if (temperature >= 128) temperature -= 256;
-        if (temperature > 99) temperature = 99;
-        int humidity = data[1];
-        if (humidity > 99) humidity = 99;
-        sprintf(string, "(%d,%d)", temperature, humidity);
+        unsigned long itemTime = ((data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]);
+        if (epoch < itemTime) {
+            break;
+        } else {
+            unsigned long seconds = epoch - itemTime;
+            int hours = seconds / 3600;
+            int temperature = data[4];
+            if (temperature >= 128) temperature -= 256;
+            if (temperature > 99) temperature = 99;
+            int humidity = data[5];
+            if (humidity > 99) humidity = 99;
+            sprintf(string, "(%dh:%d,%d)", hours, temperature, humidity);
         
-        string += strlen(string);
-        data += 2;
+            string += strlen(string);
+            data += 6;
+        }
     }
 }
 
