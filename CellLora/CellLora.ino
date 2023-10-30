@@ -7,20 +7,19 @@
 
 char VERSION[30] = "v000 ";
 
-#define PIN_LED    8
 #define UART_TX    21
-#define UART_RX    20
-#define PIN_ADC    0
-#define I2C_SDA    1
-#define I2C_SCL    3
+#define UART_RX    2      // with pull-up for strapping
+#define PIN_ADC    3
+#define I2C_SDA    0
+#define I2C_SCL    1
 #define I2C_AHT10  0x38
 
 #define LORA_POWER 4
-#define LORA_MOSI  5
-#define LORA_SS    6
-#define LORA_MISO  7
-#define LORA_SCK   9
-#define LORA_RST   10
+#define LORA_MOSI  10
+#define LORA_SS    20
+#define LORA_MISO  5
+#define LORA_SCK   6
+#define LORA_RST   7
 #define LORA_INT   -1
 
 #define HISTORY_CSV "/history.csv"
@@ -76,7 +75,6 @@ void setup() {
 // Initialize pins    
     pinMode(PIN_ADC, ANALOG);
     adcAttachPin(PIN_ADC);
-    pinMode(PIN_LED, INPUT);
 
 // Initialize LoRa module
     pinMode(LORA_POWER, OUTPUT);
@@ -85,7 +83,7 @@ void setup() {
     LoRa.setPins(LORA_SS, LORA_RST);
     if (LoRa.begin(433E6) == 0) {
         Serial.println("LoRa begin fail");
-        return;
+//TEST        return;
     } else {
         LoRa.setSpreadingFactor(10);
         LoRa.setSignalBandwidth(125E3);
@@ -272,7 +270,7 @@ void setup() {
 // loop() does the cleanup and goes to sleep
 void loop() {
     LoRa.sleep();
-    digitalWrite(LORA_POWER, LOW);
+//TEST    digitalWrite(LORA_POWER, LOW);
     uint64_t sleepTime = (sleepSeconds * 1000000L) - (millis() - processTime + 1) * 1000L;
     Serial.printf("Processing time %d ms, sleep for %ld seconds\n",
                   millis() - processTime, sleepTime / 1000000);
