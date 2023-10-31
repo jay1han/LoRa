@@ -21,7 +21,7 @@ char VERSION[30] = "v000 ";
 
 #define SSID         "HORS SERVICE"
 #define PASS         "babeface00"
-WiFiClient wifiClient(2048);
+WiFiClient wifi;
 
 #define MQTT_SERVER  "jayhan.name"
 #define MQTT_TOPIC   "LoRa"
@@ -255,10 +255,10 @@ void parseBal(int length, byte *payload, char *message) {
 void parseCellar(int length, byte *payload, char *message) {
     int numData = length / 6;
     int pageCount = payload[0];
-    float battery = payload[1] + ((float)payload[2] / 100);
-    unsigned long epoch = (payload[3] << 24) | (payload[4] << 16) | (payload[5] << 8) | payload[6];
-    byte *data = payload + 3;
-    sprintf(message, "%.2f[%d]", battery, pageCount);
+    float battery = payload[1] / 10;
+    unsigned long epoch = (payload[2] << 24) | (payload[3] << 16) | (payload[4] << 8) | payload[5];
+    byte *data = payload + 2;
+    sprintf(message, "%.1f[%d]", battery, pageCount);
     char *string = message + strlen(message);
     
     for (int item = 0; item < numData; item++) {

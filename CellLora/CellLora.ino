@@ -41,12 +41,14 @@ typedef struct {
 // Everything happens in setup()
 
 void writeItemLoRa(HistoryItem item) {
+    int iTemp = int(item.temperature + 0.5);
     byte temperature = 128, humidity = 0;
     
-    if (int(item.temperature) < 0)
-        temperature = 255 - int(item.temperature);
+    int iTemp = int(item.temperature + 0.5);
+    if (iTemp < 0)
+        temperature = 255 - iTemp;
     else
-        temperature = int(item.temperature);
+        temperature = iTemp;
     humidity = int(item.humidity);
     
     LoRa.write(item.time >> 24);
@@ -62,8 +64,7 @@ void writeHeaderLoRa(int pageCount, int battery) {
     LoRa.write(ID_HEADER);
     LoRa.write(ID_CELLAR);
     LoRa.write(pageCount);
-    LoRa.write(battery / 100);
-    LoRa.write(battery % 100);
+    LoRa.write(battery);
 }
 
 unsigned long processTime;
@@ -97,8 +98,8 @@ void setup() {
         delay(10);
     }
     float voltage = mV / 1000.0;
-    Serial.printf("Battery %.2fV\n", voltage);
-    int battery = int(voltage * 100);
+    Serial.printf("Battery %.1fV\n", voltage);
+    int battery = int(voltage * 10);
 
 // Initialize AHT10
     Serial.print("Initialize AHT10 ");
