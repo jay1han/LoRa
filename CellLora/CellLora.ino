@@ -9,12 +9,12 @@ char VERSION[30] = "v000 ";
 
 #define UART_TX    21
 #define UART_RX    2      // with pull-up for strapping
-#define PIN_ADC    3
+#define PIN_ADC    4
 #define I2C_SDA    0
 #define I2C_SCL    1
 #define I2C_AHT10  0x38
 
-#define LORA_POWER 4
+#define LORA_POWER 3
 #define LORA_MOSI  10
 #define LORA_SS    20
 #define LORA_MISO  5
@@ -72,10 +72,6 @@ void setup() {
     sleepSeconds = SLEEP_SECONDS_RETRY; // In case something goes wrong
     Serial.begin(115200, SERIAL_8N1, UART_RX, UART_TX);
 
-// Initialize pins    
-    pinMode(PIN_ADC, ANALOG);
-    adcAttachPin(PIN_ADC);
-
 // Initialize LoRa module
     pinMode(LORA_POWER, OUTPUT);
     digitalWrite(LORA_POWER, HIGH);
@@ -83,13 +79,26 @@ void setup() {
     LoRa.setPins(LORA_SS, LORA_RST);
     if (LoRa.begin(433E6) == 0) {
         Serial.println("LoRa begin fail");
-//TEST        return;
+        return;
     } else {
         LoRa.setSpreadingFactor(10);
         LoRa.setSignalBandwidth(125E3);
         LoRa.setCodingRate4(8);
         Serial.println("LoRa init OK");
     }
+
+// Read battery voltage    
+    pinMode(PIN_ADC, ANALOG);
+    adcAttachPin(PIN_ADC);
+
+    int mV = 0;
+    for (int i = 0; i < 11; i++) {
+        mV += analogReadMilliVolts(PIN_ADC);
+        delay(10);
+    }
+    float voltage = mV / 1000.0;
+    Serial.printf("Battery %.2fV\n", voltage);
+    int battery = int(voltage * 100);
 
 // Initialize AHT10
     Serial.print("Initialize AHT10 ");
@@ -156,16 +165,6 @@ void setup() {
                       rawTemp, temperature,
                       rawHum,  humidity);
     }
-
-// Read battery voltage    
-    int mV = 0;
-    for (int i = 0; i < 11; i++) {
-        mV += analogReadMilliVolts(PIN_ADC);
-        delay(10);
-    }
-    float voltage = mV / 1000.0;
-    Serial.printf("Battery %.2fV\n", voltage);
-    int battery = int(voltage * 100);
 
 // Build history data item
     if (!FFat.begin(true)) {
@@ -270,7 +269,7 @@ void setup() {
 // loop() does the cleanup and goes to sleep
 void loop() {
     LoRa.sleep();
-//TEST    digitalWrite(LORA_POWER, LOW);
+    digitalWrite(LORA_POWER, LOW);
     uint64_t sleepTime = (sleepSeconds * 1000000L) - (millis() - processTime + 1) * 1000L;
     Serial.printf("Processing time %d ms, sleep for %ld seconds\n",
                   millis() - processTime, sleepTime / 1000000);
