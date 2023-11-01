@@ -5,7 +5,7 @@
 #include <MQTT.h>
 #include <Esp.h>
 
-#define VERSION      "v001"
+#define VERSION      "v002"
 char header[30] =    "";
 
 #define PIN_LED      15
@@ -406,6 +406,11 @@ void loop() {
         }
         lastUpdate_ms = millis();
     }
-        
+
+    if (!mqttClient.connected()) {
+      Serial.println("MQTT failure");
+      delay(1000);
+      ESP.restart();
+    }
     mqttClient.loop();
 }

@@ -26,8 +26,8 @@ char VERSION[20] = "CellLora v002";
 #define HISTORY_OLD "/history.old"
 #define HISTORY_NEW "/history.new"
 
-#define SLEEP_SECONDS_FULL  3600
-#define SLEEP_SECONDS_RETRY 600
+#define SLEEP_SECONDS_FULL  300
+#define SLEEP_SECONDS_RETRY 60
 unsigned int sleepSeconds;
 #define MAX_HISTORY    5
 typedef struct {
