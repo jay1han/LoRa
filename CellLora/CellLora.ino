@@ -5,7 +5,7 @@
 #include <Esp.h>
 #include "FFat.h"
 
-char VERSION[30] = "v000 ";
+char VERSION[20] = "CellLora v002";
 
 #define UART_TX    21
 #define UART_RX    2      // with pull-up for strapping
@@ -29,7 +29,7 @@ char VERSION[30] = "v000 ";
 #define SLEEP_SECONDS_FULL  3600
 #define SLEEP_SECONDS_RETRY 600
 unsigned int sleepSeconds;
-#define MAX_HISTORY    (3 * 24)
+#define MAX_HISTORY    5
 typedef struct {
     time_t time;
     float temperature;
@@ -41,7 +41,6 @@ typedef struct {
 // Everything happens in setup()
 
 void writeItemLoRa(HistoryItem item) {
-    int iTemp = int(item.temperature + 0.5);
     byte temperature = 128, humidity = 0;
     
     int iTemp = int(item.temperature + 0.5);
@@ -72,6 +71,7 @@ void setup() {
     processTime = millis();
     sleepSeconds = SLEEP_SECONDS_RETRY; // In case something goes wrong
     Serial.begin(115200, SERIAL_8N1, UART_RX, UART_TX);
+    Serial.println(VERSION);
 
 // Initialize LoRa module
     pinMode(LORA_POWER, OUTPUT);
@@ -99,7 +99,7 @@ void setup() {
     }
     float voltage = mV / 1000.0;
     Serial.printf("Battery %.1fV\n", voltage);
-    int battery = int(voltage * 10);
+    int battery = int(voltage * 10.5);
 
 // Initialize AHT10
     Serial.print("Initialize AHT10 ");

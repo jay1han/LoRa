@@ -5,7 +5,8 @@
 #include <MQTT.h>
 #include <Esp.h>
 
-char VERSION[30] = "v000 ";
+#define VERSION      "v001"
+char header[30] =    "";
 
 #define PIN_LED      15
 
@@ -21,7 +22,7 @@ char VERSION[30] = "v000 ";
 
 #define SSID         "HORS SERVICE"
 #define PASS         "babeface00"
-WiFiClient wifi;
+WiFiClient wifiClient;
 
 #define MQTT_SERVER  "jayhan.name"
 #define MQTT_TOPIC   "LoRa"
@@ -40,6 +41,7 @@ MQTTClient mqttClient(1024);
 #define LCD_PAGES     (LCD_V_RES / 8)
 #define LINE_WIDTH    (LCD_H_RES / FONT_PITCH)
 #include "fontdata.h"
+#define CHAR_RSSI     0x01
 
 const unsigned char ssd1306_init[] = {
     0xAE | 0x00,          // SET_DISP            off
@@ -126,15 +128,15 @@ void writeDisplay(int line, int pos, char *message) {
 #define ID_BAL       0
 #define ID_CELLAR    1
 #define ID_TEST      2
-void parseTest(int length, byte *payload, char *message);
-void parseBal(int length, byte *payload, char *message);
-void parseCellar(int length, byte *payload, char *message);
+float parseTest(int length, byte *payload, char *message);
+float parseBal(int length, byte *payload, char *message);
+float parseCellar(int length, byte *payload, char *message);
 
 struct {
     byte code;
     int line;
     char name[10];
-    void (*parser)(int, byte*, char*);
+    float (*parser)(int, byte*, char*);
 } Vector[SOURCES] = {
     {0xBA, 1, "Bal", parseBal},
     {0xCE, 2, "Cellar", parseCellar},
@@ -144,35 +146,43 @@ struct {
 struct {
     char message[1024];
     unsigned long millis;
+    float battery;
     int rssi;
     float snr;
 } Rx[SOURCES];
 byte payload[MAX_PAYLOAD];
 
 void sendMessage(int source) {
-    char line[LINE_WIDTH + 1], topic[20], info[20], name[4];
+    char line[LINE_WIDTH + 1], topic[20], info[20];
 
-    sprintf(info, "[%03d,%.2f]", Rx[source].rssi, Rx[source].snr);
+    sprintf(info, "[%d,%.2f]", Rx[source].rssi, Rx[source].snr);
     strcat(Rx[source].message, info);
     sprintf(topic, "%s/%s", MQTT_TOPIC, Vector[source].name);
     Serial.printf("%s:%s\n", topic, Rx[source].message);
+    
+    digitalWrite(PIN_LED, LOW);
     mqttClient.publish(topic, Rx[source].message);
-    strncpy(name, Vector[source].name, 3);
-    name[3] = 0;
-    sprintf(line, "%s  0m %3d %2.0f", name, Rx[source].rssi, Rx[source].snr);
-    writeDisplay(Vector[source].line, 0, line);
+    digitalWrite(PIN_LED, HIGH);
+    
+    char rssi;
+    if (Rx[source].rssi > 135) rssi = 1;
+    else if (Rx[source].rssi < 55) rssi = 7;
+    else rssi = 7 - (Rx[source].rssi - 55) / 16;
+    sprintf(line, "%3.1fV  0m%c%2.0f", Rx[source].battery, CHAR_RSSI + rssi, Rx[source].snr);
+    writeDisplay(Vector[source].line, 3, line);
 
     Rx[source].message[0] = 0;
+    mqttClient.loop();
 }
 
 void skipMessage() {
     while(LoRa.available() > 0) LoRa.read();
-    digitalWrite(PIN_LED, LOW);
+    digitalWrite(PIN_LED, HIGH);
 }
 
 // If CONTINUOUS, this is called from ISR!!!
 void onReceive(int packetSize) {
-    digitalWrite(PIN_LED, HIGH);
+    digitalWrite(PIN_LED, LOW);
     
     #if !CONTINUOUS
     Serial.printf("Received packet of %d bytes\n", packetSize);
@@ -209,9 +219,9 @@ void onReceive(int packetSize) {
     for (source = 0; source < SOURCES; source++) {
         if (senderCode == Vector[source].code) {
             if (Rx[source].message[0] != 0) {
-                #if !CONTINUOUS
+#if !CONTINUOUS
                 Serial.println("Overlapping packet, skipping");
-                #endif
+#endif
                 skipMessage();
                 return;
             }
@@ -220,7 +230,7 @@ void onReceive(int packetSize) {
             for (int i = 0; i < length; i++) {
                 payload[i] = LoRa.read();
             }
-            Vector[source].parser(length, payload, Rx[source].message);
+            Rx[source].battery = Vector[source].parser(length, payload, Rx[source].message);
             Rx[source].rssi = -LoRa.packetRssi();
             Rx[source].snr  = LoRa.packetSnr();
 #if !CONTINUOUS
@@ -241,24 +251,26 @@ void onReceive(int packetSize) {
     skipMessage();
 }
 
-void parseTest(int length, byte *payload, char *message) {
+float parseTest(int length, byte *payload, char *message) {
     memcpy(message, payload, length);
     message[length] = 0;
+    return 4.2;
 }
 
-void parseBal(int length, byte *payload, char *message) {
+float parseBal(int length, byte *payload, char *message) {
     char mail = payload[0] == 1 ? 'Y' : 'N';
-    float batt = (float)payload[1] + (float)payload[2] * 0.01;
-    sprintf(message, "mail=%c batt=%.2fV", mail, batt);
+    float battery = (float)payload[1] / 10.0;
+    sprintf(message, "mail=%c batt=%3.1fV", mail, battery);
+    return battery;
 }
 
-void parseCellar(int length, byte *payload, char *message) {
+float parseCellar(int length, byte *payload, char *message) {
     int numData = length / 6;
     int pageCount = payload[0];
-    float battery = payload[1] / 10;
+    float battery = (float)payload[1] / 10.0;
     unsigned long epoch = (payload[2] << 24) | (payload[3] << 16) | (payload[4] << 8) | payload[5];
     byte *data = payload + 2;
-    sprintf(message, "%.1f[%d]", battery, pageCount);
+    sprintf(message, "%3.1fV[%d]", battery, pageCount);
     char *string = message + strlen(message);
     
     for (int item = 0; item < numData; item++) {
@@ -267,7 +279,7 @@ void parseCellar(int length, byte *payload, char *message) {
             break;
         } else {
             unsigned long seconds = epoch - itemTime;
-            int hours = seconds / 3600;
+            int hours = seconds / 3600L;
             int temperature = data[4];
             if (temperature >= 128) temperature -= 256;
             if (temperature > 99) temperature = 99;
@@ -279,6 +291,7 @@ void parseCellar(int length, byte *payload, char *message) {
             data += 6;
         }
     }
+    return battery;
 }
 
 // -----------------
@@ -295,6 +308,12 @@ void setup() {
     WiFi.begin(SSID, PASS);
 
     initDisplay();
+    char name[4];
+    for (int source = 0; source < SOURCES; source++) {
+        strncpy(name, Vector[source].name, 3);
+        name[3] = 0;
+        writeDisplay(Vector[source].line, 0, name);
+    }
     
     SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
     pinMode(LORA_INT, INPUT_PULLUP);
@@ -321,8 +340,8 @@ void setup() {
             ESP.restart();
         }
     }
-    strcat(VERSION, (char*)WiFi.localIP().toString().c_str());
-    Serial.println(VERSION);
+    strcat(header, (char*)WiFi.localIP().toString().c_str());
+    Serial.println(header);
 
     mqttClient.begin(MQTT_SERVER, wifiClient);
     mqttClient.setKeepAlive(3600);
@@ -331,12 +350,12 @@ void setup() {
         delay(1000);
         ESP.restart();
     }
-    mqttClient.publish(MQTT_TOPIC, VERSION, true, 0);
+    mqttClient.publish(MQTT_TOPIC, header, true, 0);
     Serial.println("MQTT connected");
-    writeDisplay(0, 0, VERSION);
-    digitalWrite(PIN_LED, LOW);
+    writeDisplay(0, 0, header);
 
 #if CONTINUOUS      
+    Serial.println("Listening...");
     LoRa.onReceive(onReceive);
     LoRa.receive();
 #endif
@@ -383,11 +402,10 @@ void loop() {
             } else {
                 continue;
             }
-            writeDisplay(Vector[source].line, 4, timeElapsed);
+            writeDisplay(Vector[source].line, 8, timeElapsed);
         }
         lastUpdate_ms = millis();
     }
         
     mqttClient.loop();
 }
-
