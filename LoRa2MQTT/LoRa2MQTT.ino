@@ -5,7 +5,7 @@
 #include <MQTT.h>
 #include <Esp.h>
 
-#define VERSION      "v003"
+#define VERSION      "v004"
 char header[30] =    "";
 
 #define PIN_LED      15
@@ -279,7 +279,7 @@ float parseCellar(int length, byte *payload, char *message) {
             break;
         } else {
             unsigned long seconds = epoch - itemTime;
-            int minutes = seconds / 3600L;
+            int minutes = seconds / 60L;
             int temperature = data[4];
             if (temperature >= 128) temperature -= 256;
             if (temperature > 99) temperature = 99;
