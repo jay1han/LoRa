@@ -5,7 +5,7 @@
 #include <MQTT.h>
 #include <Esp.h>
 
-#define VERSION      "v004"
+#define VERSION      "v005"
 char header[30] =    "";
 
 #define PIN_LED      15
@@ -393,8 +393,12 @@ void loop() {
     if (millisElapsed(millis(), lastUpdate_ms) > 1000L * 60) {
         for (int source = 0; source < SOURCES; source ++) {
             seconds = millisElapsed(millis(), Rx[source].millis) / 1000;
-            if (seconds >= 3600 * 100) {
+            if (seconds >= 3600 * 24 * 7) {
                 strcpy(timeElapsed, "Inf");
+            } else if (seconds >= 3600 * 24 * 7) {
+                sprintf(timeElapsed, "%2dw", seconds / 3600 / 24 / 7);
+            } else if (seconds >= 3600 * 24) {
+                sprintf(timeElapsed, "%2dd", seconds / 3600 / 24);
             } else if (seconds >= 3600) {
                 sprintf(timeElapsed, "%2dh", seconds / 3600);
             } else if (seconds >= 60) {
