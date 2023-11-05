@@ -5,10 +5,14 @@
 #include <MQTT.h>
 #include <Esp.h>
 
-#define VERSION      "v005"
+#define VERSION      "v006"
 char header[30] =    "";
 
 #define PIN_LED      15
+#define PIN_BUTTON   0
+bool screenOn = true;
+int buttonState;
+unsigned long screensaver;
 
 #define LORA_RST     39
 #define LORA_SCK     37
@@ -52,7 +56,7 @@ const unsigned char ssd1306_init[] = {
     0x20, 0x02,           // SET_MEM_ADDRESS     page mode
     0xD9, 0xF1,           // SET_PRECHARGE
     0xDB, 0x30,           // SET_VCOM_DESEL
-    0x81, 0x7F,           // SET_CONTRAST
+    0x81, 0xFF,           // SET_CONTRAST
     0xA4,                 // SET_ENTIRE_ON
     0xA6 | 0x00,          // SET_NORM_INV (0x01 for inverse)
     0x8D, 0x14,           // SET_CHARGE_PUMP
@@ -65,6 +69,24 @@ void ssd1306_cmd(unsigned char cmd) {
     Wire.write(0x80);
     Wire.write(cmd);
     Wire.endTransmission();
+}
+
+void displayOn() {
+    ssd1306_cmd(0x81);
+    ssd1306_cmd(0xFF);
+    Serial.println("Screen ON");
+    screenOn = true;
+    digitalWrite(PIN_LED, !screenOn);
+    screensaver = millis();
+}
+
+void displayOff() {
+    ssd1306_cmd(0x81);
+    ssd1306_cmd(0x00);
+    Serial.println("Screensaver");
+    screenOn = false;
+    digitalWrite(PIN_LED, !screenOn);
+    buttonState = digitalRead(PIN_BUTTON);
 }
 
 void sendPagePos(int page, int pos, unsigned char *thisBuffer, int length) {
@@ -95,6 +117,9 @@ void initDisplay() {
     } else {
         Serial.println("I2C OLED failed");
     }
+
+    screenOn = true;
+    screensaver = millis();
 }
 
 unsigned char line_top[LCD_H_RES];
@@ -102,6 +127,7 @@ unsigned char line_bot[LCD_H_RES];
 void writeDisplay(int line, int pos, char *message) {
     int target = 0;
     int start  = pos * FONT_PITCH;
+
     for (int i = 0; i < strlen(message) && i < LINE_WIDTH - pos; i++) {
         int index = message[i];
         for (int col = 0; col < FONT_WIDTH_16; col++) {
@@ -160,9 +186,9 @@ void sendMessage(int source) {
     sprintf(topic, "%s/%s", MQTT_TOPIC, Vector[source].name);
     Serial.printf("%s:%s\n", topic, Rx[source].message);
     
-    digitalWrite(PIN_LED, LOW);
+    digitalWrite(PIN_LED, screenOn);
     mqttClient.publish(topic, Rx[source].message);
-    digitalWrite(PIN_LED, HIGH);
+    digitalWrite(PIN_LED, !screenOn);
     
     char rssi;
     if (Rx[source].rssi > 135) rssi = 1;
@@ -177,12 +203,12 @@ void sendMessage(int source) {
 
 void skipMessage() {
     while(LoRa.available() > 0) LoRa.read();
-    digitalWrite(PIN_LED, HIGH);
+    digitalWrite(PIN_LED, !screenOn);
 }
 
 // If CONTINUOUS, this is called from ISR!!!
 void onReceive(int packetSize) {
-    digitalWrite(PIN_LED, LOW);
+    digitalWrite(PIN_LED, screenOn);
     
     #if !CONTINUOUS
     Serial.printf("Received packet of %d bytes\n", packetSize);
@@ -304,7 +330,10 @@ void setup() {
     Serial.println(VERSION);
 
     pinMode(PIN_LED, OUTPUT);
-    digitalWrite(PIN_LED, HIGH);
+    digitalWrite(PIN_LED, LOW);
+    pinMode(PIN_BUTTON, INPUT_PULLUP);
+    buttonState = digitalRead(PIN_BUTTON);
+    
     WiFi.begin(SSID, PASS);
 
     initDisplay();
@@ -411,10 +440,21 @@ void loop() {
         lastUpdate_ms = millis();
     }
 
+    if (screenOn) {
+        if (millisElapsed(millis(), screensaver) > 1000L * 30) {
+            displayOff();
+        }
+    } else {
+        if (buttonState != digitalRead(PIN_BUTTON)) {
+            displayOn();
+        }
+    }
+
     if (!mqttClient.connected()) {
       Serial.println("MQTT failure");
       delay(1000);
       ESP.restart();
     }
     mqttClient.loop();
+    sleep(1);
 }
