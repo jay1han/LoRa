@@ -353,7 +353,7 @@ void setup() {
         delay(1000);
         ESP.restart();
     } else {
-        LoRa.setSpreadingFactor(10);
+        LoRa.setSpreadingFactor(12);
         LoRa.setSignalBandwidth(125E3);
         LoRa.setCodingRate4(8);
         Serial.println("LoRa initialized");

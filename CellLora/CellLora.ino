@@ -26,10 +26,10 @@ char VERSION[20] = "CellLora v002";
 #define HISTORY_OLD "/history.old"
 #define HISTORY_NEW "/history.new"
 
-#define SLEEP_SECONDS_FULL  300
-#define SLEEP_SECONDS_RETRY 60
+#define SLEEP_SECONDS_FULL  3600 // Every hour
+#define SLEEP_SECONDS_RETRY 30 // This should be 60 normally
 unsigned int sleepSeconds;
-#define MAX_HISTORY    5
+#define MAX_HISTORY    72
 typedef struct {
     time_t time;
     float temperature;
@@ -82,7 +82,7 @@ void setup() {
         Serial.println("LoRa begin fail");
         return;
     } else {
-        LoRa.setSpreadingFactor(10);
+        LoRa.setSpreadingFactor(12);
         LoRa.setSignalBandwidth(125E3);
         LoRa.setCodingRate4(8);
         Serial.println("LoRa init OK");
