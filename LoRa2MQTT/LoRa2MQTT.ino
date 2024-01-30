@@ -5,7 +5,7 @@
 #include <MQTT.h>
 #include <Esp.h>
 
-#define VERSION      "v006"
+#define VERSION      "v100"
 char header[30] =    "";
 
 #define PIN_LED      15
@@ -146,7 +146,6 @@ void writeDisplay(int line, int pos, char *message) {
 // --------------------------------
 // Global variables shared with ISR
 
-#define CONTINUOUS   1
 #define MAX_PAYLOAD  256
 
 #define ID_HEADER    0x92
@@ -154,15 +153,15 @@ void writeDisplay(int line, int pos, char *message) {
 #define ID_BAL       0
 #define ID_CELLAR    1
 #define ID_TEST      2
-float parseTest(int length, byte *payload, char *message);
-float parseBal(int length, byte *payload, char *message);
-float parseCellar(int length, byte *payload, char *message);
+float parseTest(int length, byte *payload, char *message, char *topic, char *json);
+float parseBal(int length, byte *payload, char *message, char *topic, char *json);
+float parseCellar(int length, byte *payload, char *message, char *topic, char *json);
 
 struct {
     byte code;
     int line;
     char name[10];
-    float (*parser)(int, byte*, char*);
+    float (*parser)(int, byte*, char*, char*, char*);
 } Vector[SOURCES] = {
     {0xBA, 1, "Bal", parseBal},
     {0xCE, 2, "Cellar", parseCellar},
@@ -171,6 +170,8 @@ struct {
 
 struct {
     char message[1024];
+    char topic[128];
+    char json[256];
     unsigned long millis;
     float battery;
     int rssi;
@@ -186,15 +187,17 @@ void sendMessage(int source) {
     sprintf(topic, "%s/%s", MQTT_TOPIC, Vector[source].name);
     Serial.printf("%s:%s\n", topic, Rx[source].message);
     
-    digitalWrite(PIN_LED, screenOn);
     mqttClient.publish(topic, Rx[source].message);
-    digitalWrite(PIN_LED, !screenOn);
+    if (Rx[source].json[0] != 0) {
+        mqttClient.publish(Rx[source].topic, Rx[source].json);
+    }
     
     char rssi;
     if (Rx[source].rssi > 135) rssi = 1;
     else if (Rx[source].rssi < 55) rssi = 7;
     else rssi = 7 - (Rx[source].rssi - 55) / 16;
     sprintf(line, "%3.1fV  0m%c%2.0f", Rx[source].battery, CHAR_RSSI + rssi, Rx[source].snr);
+    displayOn();
     writeDisplay(Vector[source].line, 3, line);
 
     Rx[source].message[0] = 0;
@@ -206,13 +209,10 @@ void skipMessage() {
     digitalWrite(PIN_LED, !screenOn);
 }
 
-// If CONTINUOUS, this is called from ISR!!!
+// CONTINUOUS, this is called from ISR!!!
 void onReceive(int packetSize) {
     digitalWrite(PIN_LED, screenOn);
     
-    #if !CONTINUOUS
-    Serial.printf("Received packet of %d bytes\n", packetSize);
-    #endif
     if (packetSize == 0 || packetSize > MAX_PAYLOAD) {
         skipMessage();
         return;
@@ -220,9 +220,6 @@ void onReceive(int packetSize) {
     
     byte header = LoRa.read();
     if (header != ID_HEADER) {
-#if !CONTINUOUS
-        Serial.printf("Wrong header byte 0x%02X, skipping\n", header);
-#endif
         skipMessage();
         return;
     }
@@ -230,24 +227,14 @@ void onReceive(int packetSize) {
     byte senderCode = LoRa.read();
     int length = LoRa.available();
     if (length != packetSize - 2) {
-#if !CONTINUOUS
-        Serial.printf("Packet size mismatch %d != %d\n", length, packetSize - 2);
-#endif
         skipMessage();
         return;
     }
     
-#if !CONTINUOUS
-    Serial.printf("Packet from 0x%02X, data %d bytes\n", senderCode, length);
-#endif
-
     int source;
     for (source = 0; source < SOURCES; source++) {
         if (senderCode == Vector[source].code) {
             if (Rx[source].message[0] != 0) {
-#if !CONTINUOUS
-                Serial.println("Overlapping packet, skipping");
-#endif
                 skipMessage();
                 return;
             }
@@ -256,20 +243,15 @@ void onReceive(int packetSize) {
             for (int i = 0; i < length; i++) {
                 payload[i] = LoRa.read();
             }
-            Rx[source].battery = Vector[source].parser(length, payload, Rx[source].message);
+            Rx[source].json[0] = 0;
+            Rx[source].battery = Vector[source].parser(length, payload, Rx[source].message, Rx[source].topic, Rx[source].json);
             Rx[source].rssi = -LoRa.packetRssi();
             Rx[source].snr  = LoRa.packetSnr();
-#if !CONTINUOUS
-            sendMessage(source);
-#endif
             break;
         }
     }
     
     if (source == SOURCES) {
-#if !CONTINUOUS
-        Serial.printf("Unknown source 0x%02X, skipping\n", senderCode);
-#endif
         skipMessage();
         return;
     }
@@ -277,20 +259,23 @@ void onReceive(int packetSize) {
     skipMessage();
 }
 
-float parseTest(int length, byte *payload, char *message) {
+float parseTest(int length, byte *payload, char *message, char *topic, char *json) {
     memcpy(message, payload, length);
     message[length] = 0;
     return 4.2;
 }
 
-float parseBal(int length, byte *payload, char *message) {
+float parseBal(int length, byte *payload, char *message, char *topic, char *json) {
     char mail = payload[0] == 1 ? 'Y' : 'N';
     float battery = (float)payload[1] / 10.0;
     sprintf(message, "mail=%c batt=%3.1fV", mail, battery);
     return battery;
 }
 
-float parseCellar(int length, byte *payload, char *message) {
+#define HASS_TOPIC   "homeassistant/sensor/CellLora/state"
+#define HASS_MESSAGE "{\"temperature\": %d, \"humidity\": %d, \"voltage\": %.1f}"
+
+float parseCellar(int length, byte *payload, char *message, char *topic, char *json) {
     int numData = length / 6;
     int pageCount = payload[0];
     float battery = (float)payload[1] / 10.0;
@@ -315,6 +300,11 @@ float parseCellar(int length, byte *payload, char *message) {
         
             string += strlen(string);
             data += 6;
+
+            if (epoch == itemTime) {
+                strcpy(topic, HASS_TOPIC);
+                sprintf(json, HASS_MESSAGE, temperature, humidity, battery);
+            }
         }
     }
     return battery;
@@ -383,11 +373,9 @@ void setup() {
     Serial.println("MQTT connected");
     writeDisplay(0, 0, header);
 
-#if CONTINUOUS      
     Serial.println("Listening...");
     LoRa.onReceive(onReceive);
     LoRa.receive();
-#endif
 }
 
 unsigned long millisElapsed(unsigned long end, unsigned long start) {
@@ -400,22 +388,11 @@ unsigned long millisElapsed(unsigned long end, unsigned long start) {
 void loop() {
     static unsigned long lastUpdate_ms = millis();
     
-#if CONTINUOUS
     for (int source = 0; source < SOURCES; source ++) {
         if (Rx[source].message[0] != 0) {
             sendMessage(source);
         }
     }
-
-#else
-    int packetSize = LoRa.parsePacket();
-    if (packetSize == 0) {
-        Serial.print(".");
-    } else {
-        Serial.println("INT");
-        onReceive(packetSize);
-    }
-#endif
 
     char timeElapsed[4];
     unsigned long seconds;
