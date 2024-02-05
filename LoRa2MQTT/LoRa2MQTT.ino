@@ -273,40 +273,16 @@ float parseBal(int length, byte *payload, char *message, char *topic, char *json
 }
 
 #define HASS_TOPIC   "homeassistant/sensor/CellLora/state"
-#define HASS_MESSAGE "{\"temperature\": %d, \"humidity\": %d, \"voltage\": %.1f}"
+#define HASS_MESSAGE "{\"temperature\": %.1f, \"humidity\": %.0f, \"voltage\": %.1f}"
 
 float parseCellar(int length, byte *payload, char *message, char *topic, char *json) {
-    int numData = length / 6;
-    int pageCount = payload[0];
-    float battery = (float)payload[1] / 10.0;
-    unsigned long epoch = (payload[2] << 24) | (payload[3] << 16) | (payload[4] << 8) | payload[5];
-    byte *data = payload + 2;
-    sprintf(message, "%3.1fV[%d]", battery, pageCount);
-    char *string = message + strlen(message);
+    float battery = (float)payload[0] / 10.0;
+    float temperature = (float)payload[1] + (float)payload[2] / 10.0;
+    float humidity = (float)payload[3];
     
-    for (int item = 0; item < numData; item++) {
-        unsigned long itemTime = ((data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]);
-        if (epoch < itemTime) {
-            break;
-        } else {
-            unsigned long seconds = epoch - itemTime;
-            int minutes = seconds / 60L;
-            int temperature = data[4];
-            if (temperature >= 128) temperature -= 256;
-            if (temperature > 99) temperature = 99;
-            int humidity = data[5];
-            if (humidity > 99) humidity = 99;
-            sprintf(string, "(-%dm:%d,%d)", minutes, temperature, humidity);
-        
-            string += strlen(string);
-            data += 6;
-
-            if (epoch == itemTime) {
-                strcpy(topic, HASS_TOPIC);
-                sprintf(json, HASS_MESSAGE, temperature, humidity, battery);
-            }
-        }
-    }
+    sprintf(message, "%3.1fV %.1fC %.0f%%", battery, temperature, humidity);
+    strcpy(topic, HASS_TOPIC);
+    sprintf(json, HASS_MESSAGE, temperature, humidity, battery);
     return battery;
 }
 

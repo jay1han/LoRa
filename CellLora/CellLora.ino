@@ -3,9 +3,8 @@
 #include <LoRa.h>
 #include <Wire.h>
 #include <Esp.h>
-#include "FFat.h"
 
-char VERSION[20] = "CellLora v002";
+char VERSION[20] = "CellLora v100";
 
 #define UART_TX    21
 #define UART_RX    2      // with pull-up for strapping
@@ -22,10 +21,6 @@ char VERSION[20] = "CellLora v002";
 #define LORA_RST   7
 #define LORA_INT   -1
 
-#define HISTORY_CSV "/history.csv"
-#define HISTORY_OLD "/history.old"
-#define HISTORY_NEW "/history.new"
-
 #define SLEEP_SECONDS_FULL  3600 // Every hour
 #define SLEEP_SECONDS_RETRY 30 // This should be 60 normally
 unsigned int sleepSeconds;
@@ -38,33 +33,29 @@ typedef struct {
 #define ID_HEADER    0x92
 #define ID_CELLAR    0xCE
 
+// Send LoRa packet
+bool sendPacket(byte *payload, int size) {
+    if (LoRa.beginPacket() == 0) {
+        Serial.println("LoRa can't start packet");
+        return false;
+    } else {
+        LoRa.write(ID_HEADER);
+        LoRa.write(ID_CELLAR);
+
+        for (int i = 0; i < size; i++) {
+            LoRa.write(payload[i]);
+        }
+
+        if (LoRa.endPacket() == 0) {
+            Serial.println("can't send packet");
+            return false;
+        }
+    }
+    
+    return true;
+}
+
 // Everything happens in setup()
-
-void writeItemLoRa(HistoryItem item) {
-    byte temperature = 128, humidity = 0;
-    
-    int iTemp = int(item.temperature + 0.5);
-    if (iTemp < 0)
-        temperature = 255 - iTemp;
-    else
-        temperature = iTemp;
-    humidity = int(item.humidity);
-    
-    LoRa.write(item.time >> 24);
-    LoRa.write((item.time >> 16) & 0xFF);
-    LoRa.write((item.time >> 8) & 0xFF);
-    LoRa.write(item.time & 0xFF);
-    LoRa.write(temperature);
-    LoRa.write(humidity);
-}
-
-void writeHeaderLoRa(int pageCount, int battery) {
-    Serial.printf("LoRa page %d ", pageCount);
-    LoRa.write(ID_HEADER);
-    LoRa.write(ID_CELLAR);
-    LoRa.write(pageCount);
-    LoRa.write(battery);
-}
 
 unsigned long processTime;
 void setup() {
@@ -99,7 +90,6 @@ void setup() {
     }
     float voltage = mV / 1000.0;
     Serial.printf("Battery %.1fV\n", voltage);
-    int battery = int(voltage * 10.5);
 
 // Initialize AHT10
     Serial.print("Initialize AHT10 ");
@@ -167,101 +157,29 @@ void setup() {
                       rawHum,  humidity);
     }
 
-// Build history data item
-    if (!FFat.begin(true)) {
-        Serial.println("FatFs problem");
-        return;
-    }
+// Build LoRa packet
+    byte payload[4];
 
-    HistoryItem thisItem;
-    thisItem.time        = time(NULL);
-    thisItem.temperature = temperature;
-    thisItem.humidity    = humidity;
-    
-// Write history file
-    File updateFile  = FFat.open(HISTORY_NEW, FILE_WRITE, true);
+    int battery = int(voltage * 10.0 + 0.5);
+    payload[0] = battery;
 
-    if (updateFile) {
-        Serial.print("Updating file .");
-        updateFile.write((byte*)&thisItem, sizeof(HistoryItem));
+    int temp_int = int(temperature);
+    int temp_dec = int(temperature * 10.0 + 0.5) % 10;
+    payload[1] = temp_int;
+    payload[2] = temp_dec;
 
-        File historyFile = FFat.open(HISTORY_CSV, FILE_READ);
-        if (historyFile) {
-            int historySize = 1;
-            HistoryItem backupItem;
-            while(historyFile.available() && historySize < MAX_HISTORY) {
-                historyFile.read((byte*)&backupItem, sizeof(HistoryItem));
-                updateFile.write((byte*)&backupItem, sizeof(HistoryItem));
-                historySize ++;
-                Serial.print(".");
-            }
-            Serial.printf(" %d records\n", historySize);
-            historyFile.close();
-        } else {
-            Serial.println("Can't open history file, continuing");
-        }
-        updateFile.close();
+    int humi_int = int(humidity);
+    payload[3] = humi_int;
 
-        FFat.rename(HISTORY_CSV, HISTORY_OLD);
-        FFat.rename(HISTORY_NEW, HISTORY_CSV);
-        FFat.remove(HISTORY_OLD);
-    } else {
-        Serial.println("Can't open update file, stopping");
-        return;
-    }
-
-// Send LoRa packet
-    if (LoRa.beginPacket() == 0) {
-        Serial.println("LoRa can't start packet");
-        return;
-    } else {
-        File historyFile = FFat.open(HISTORY_CSV, FILE_READ);
-        HistoryItem historyItem;
-        byte temperature, humidity;
-        unsigned long time;
-        int itemCount = 0, pageCount = 0;
-
-        writeHeaderLoRa(pageCount, battery);
-
-        while(historyFile.available()) {
-            historyFile.read((byte*)&historyItem, sizeof(HistoryItem));
-            writeItemLoRa(historyItem);
-            Serial.print(".");
-            itemCount ++;
-
-            // Start a new packet after 24 hours of history
-            if (itemCount == 24) {
-                if (LoRa.endPacket() == 0) {
-                    Serial.println("can't send packet");
-                    return;
-                } else {
-                    Serial.printf(" %d items\n", itemCount);
-                    itemCount = 0;
-                    pageCount ++;
-                    if (historyFile.available()) {
-                        if (LoRa.beginPacket() == 0) {
-                            Serial.println("Can't start next packet");
-                            return;
-                        } else {
-                            writeHeaderLoRa(pageCount, battery);
-                            writeItemLoRa(thisItem);
-                        }
-                    }
-                }
-            }
-        }
-        historyFile.close();
-        
-        // All done, send final packet
-        if (itemCount > 0) {
-            if (LoRa.endPacket() == 0) {
-                Serial.println("can't finish packet");
-                return;
-            } else {
-                Serial.printf(" %d items. END\n", itemCount);
-            }
-        }
-    }
+// Send LoRa packet 3 times
+    Serial.println("Send packet #1");
+    sendPacket(payload, 4);
+    delay(3000);
+    Serial.println("Send packet #2");
+    sendPacket(payload, 4);
+    delay(3000);
+    Serial.println("Send packet #3");
+    sendPacket(payload, 4);
 
 // All good, sleep for full period
     sleepSeconds = SLEEP_SECONDS_FULL;
