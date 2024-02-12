@@ -24,12 +24,6 @@ char VERSION[20] = "CellLora v100";
 #define SLEEP_SECONDS_FULL  3600 // Every hour
 #define SLEEP_SECONDS_RETRY 30 // This should be 60 normally
 unsigned int sleepSeconds;
-#define MAX_HISTORY    72
-typedef struct {
-    time_t time;
-    float temperature;
-    float humidity;
-} HistoryItem;
 #define ID_HEADER    0x92
 #define ID_CELLAR    0xCE
 
@@ -163,8 +157,9 @@ void setup() {
     int battery = int(voltage * 10.0 + 0.5);
     payload[0] = battery;
 
-    int temp_int = int(temperature);
-    int temp_dec = int(temperature * 10.0 + 0.5) % 10;
+    int temp_dec = int(temperature * 10.0 + 0.5);
+    int temp_int = temp_dec / 10;
+    temp_dec -= temp_int * 10;
     payload[1] = temp_int;
     payload[2] = temp_dec;
 
@@ -174,10 +169,10 @@ void setup() {
 // Send LoRa packet 3 times
     Serial.println("Send packet #1");
     sendPacket(payload, 4);
-    delay(3000);
+    delay(1000);
     Serial.println("Send packet #2");
     sendPacket(payload, 4);
-    delay(3000);
+    delay(1000);
     Serial.println("Send packet #3");
     sendPacket(payload, 4);
 
