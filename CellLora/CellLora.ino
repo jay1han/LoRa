@@ -67,15 +67,15 @@ void setup() {
         Serial.println("LoRa begin fail");
         return;
     } else {
+        LoRa.setTxPower(20);
         LoRa.setSpreadingFactor(12);
-        LoRa.setSignalBandwidth(125E3);
+        LoRa.setSignalBandwidth(31.25E3);
         LoRa.setCodingRate4(8);
         Serial.println("LoRa init OK");
     }
 
 // Read battery voltage    
     pinMode(PIN_ADC, ANALOG);
-    adcAttachPin(PIN_ADC);
 
     int mV = 0;
     for (int i = 0; i < 11; i++) {

@@ -186,12 +186,12 @@ void sendMessage(int source) {
     strcat(Rx[source].message, info);
     sprintf(topic, "%s/%s", MQTT_TOPIC, Vector[source].name);
     Serial.printf("%s:%s\n", topic, Rx[source].message);
-    
+#if 0    
     mqttClient.publish(topic, Rx[source].message);
     if (Rx[source].json[0] != 0) {
         mqttClient.publish(Rx[source].topic, Rx[source].json);
     }
-    
+#endif    
     char rssi;
     if (Rx[source].rssi > 135) rssi = 1;
     else if (Rx[source].rssi < 55) rssi = 7;
@@ -201,7 +201,7 @@ void sendMessage(int source) {
     writeDisplay(Vector[source].line, 3, line);
 
     Rx[source].message[0] = 0;
-    mqttClient.loop();
+    //mqttClient.loop();
 }
 
 void skipMessage() {
@@ -290,7 +290,7 @@ float parseCellar(int length, byte *payload, char *message, char *topic, char *j
 // Setup code proper
 
 void setup() {
-    Serial.begin(921600);
+    Serial.begin(115200);
     delay(1000);
     Serial.print("Starting ");
     Serial.println(VERSION);
@@ -320,7 +320,7 @@ void setup() {
         ESP.restart();
     } else {
         LoRa.setSpreadingFactor(12);
-        LoRa.setSignalBandwidth(125E3);
+        LoRa.setSignalBandwidth(31.25E3);
         LoRa.setCodingRate4(8);
         Serial.println("LoRa initialized");
     }
@@ -337,7 +337,7 @@ void setup() {
     }
     strcat(header, (char*)WiFi.localIP().toString().c_str());
     Serial.println(header);
-
+#if 0
     mqttClient.begin(MQTT_SERVER, wifiClient);
     mqttClient.setKeepAlive(3600);
     if (!mqttClient.connect(MQTT_CLIENT)) {
@@ -346,6 +346,7 @@ void setup() {
         ESP.restart();
     }
     mqttClient.publish(MQTT_TOPIC, header, true, 0);
+#endif
     Serial.println("MQTT connected");
     writeDisplay(0, 0, header);
 
@@ -363,7 +364,7 @@ unsigned long millisElapsed(unsigned long end, unsigned long start) {
 
 void loop() {
     static unsigned long lastUpdate_ms = millis();
-    
+
     for (int source = 0; source < SOURCES; source ++) {
         if (Rx[source].message[0] != 0) {
             sendMessage(source);
@@ -402,12 +403,13 @@ void loop() {
             displayOn();
         }
     }
-
+#if 0
     if (!mqttClient.connected()) {
       Serial.println("MQTT failure");
       delay(1000);
       ESP.restart();
     }
     mqttClient.loop();
+#endif
     sleep(1);
 }
