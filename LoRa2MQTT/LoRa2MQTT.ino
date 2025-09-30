@@ -28,9 +28,11 @@ unsigned long screensaver;
 #define PASS         "babeface00"
 WiFiClient wifiClient;
 
-#define MQTT_SERVER  "jayhan.name"
+#define MQTT_SERVER  "192.168.0.86"
 #define MQTT_TOPIC   "LoRa"
 #define MQTT_CLIENT  "LoRa2MQTT"
+#define MQTT_USER    "guest"
+#define MQTT_PASSWD  "invitation"
 MQTTClient mqttClient(1024);
 
 // ----------------------------
@@ -173,12 +175,11 @@ float parseCellar(int length, byte *payload, char *message, char *topic, char *j
 struct {
     byte code;
     char name[10];
-    char time[8];
     float (*parser)(int, byte*, char*, char*, char*);
 } Vector[SOURCES] = {
-    {0xBA, "Bal",    "", parseBal},
-    {0xCE, "Cellar", "", parseCellar},
-    {0xA5, "Test",   "", parseTest}
+    {0xBA, "Bal",    parseBal},
+    {0xCE, "Cellar", parseCellar},
+    {0xA5, "Test",   parseTest}
 };
 
 struct {
@@ -203,12 +204,11 @@ void sendMessage(int source) {
     writeLine(1, topic);
     writeLine(2, Rx[source].message);
     writeLine(3, info);
-#if 0    
+
     mqttClient.publish(topic, Rx[source].message);
     if (Rx[source].json[0] != 0) {
         mqttClient.publish(Rx[source].topic, Rx[source].json);
     }
-#endif
     
     char rssi;
     if (Rx[source].rssi > 135) rssi = 1;
@@ -216,7 +216,7 @@ void sendMessage(int source) {
     else rssi = 7 - (Rx[source].rssi - 55) / 16;
 
     Rx[source].message[0] = 0;
-    //mqttClient.loop();
+    mqttClient.loop();
 }
 
 void skipMessage() {
@@ -346,16 +346,16 @@ void setup() {
     }
     strcat(header, (char*)WiFi.localIP().toString().c_str());
     Serial.println(header);
-#if 0
+
     mqttClient.begin(MQTT_SERVER, wifiClient);
     mqttClient.setKeepAlive(3600);
-    if (!mqttClient.connect(MQTT_CLIENT)) {
+    if (!mqttClient.connect(MQTT_CLIENT, MQTT_USER, MQTT_PASSWD)) {
         Serial.println("Can't connect to MQTT broker");
         delay(1000);
         ESP.restart();
     }
     mqttClient.publish(MQTT_TOPIC, header, true, 0);
-#endif
+
     Serial.println("MQTT connected");
     writeHeader(header);
 
@@ -382,22 +382,21 @@ void loop() {
 
     if (onScreen >= 0) {
         unsigned long seconds;
+        char elapsedTime[8];
         if (millisElapsed(millis(), lastUpdate_ms) > 1000L * 60) {
             seconds = millisElapsed(millis(), Rx[onScreen].millis) / 1000;
-            if (seconds >= 3600 * 24 * 7) {
-                strcpy(Vector[onScreen].time, "Inf");
-            } else if (seconds >= 3600 * 24 * 7) {
-                sprintf(Vector[onScreen].time, "%2dw", seconds / 3600 / 24 / 7);
+            if (seconds >= 3600 * 24 * 99) {
+                strcpy(elapsedTime, "Inf");
             } else if (seconds >= 3600 * 24) {
-                sprintf(Vector[onScreen].time, "%2dd", seconds / 3600 / 24);
+                sprintf(elapsedTime, "%dd", seconds / 3600 / 24);
             } else if (seconds >= 3600) {
-                sprintf(Vector[onScreen].time, "%2dh", seconds / 3600);
+                sprintf(elapsedTime, "%dh", seconds / 3600);
             } else {
-                sprintf(Vector[onScreen].time, "%2dm", seconds / 60);
+                sprintf(elapsedTime, "%dm", seconds / 60);
             }
             
             char topic[20];
-            sprintf(topic, "%s(%s)", Vector[onScreen].name, Vector[onScreen].time);
+            sprintf(topic, "%s(%s)", Vector[onScreen].name, elapsedTime);
             writeLine(1, topic);
         
             lastUpdate_ms = millis();
@@ -413,13 +412,13 @@ void loop() {
             displayOn();
         }
     }
-#if 0
+
     if (!mqttClient.connected()) {
       Serial.println("MQTT failure");
       delay(1000);
       ESP.restart();
     }
     mqttClient.loop();
-#endif
+
     sleep(1);
 }
