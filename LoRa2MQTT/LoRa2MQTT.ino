@@ -124,23 +124,36 @@ void initDisplay() {
 
 unsigned char line_top[LCD_H_RES];
 unsigned char line_bot[LCD_H_RES];
-void writeDisplay(int line, int pos, char *message) {
-    int target = 0;
-    int start  = pos * FONT_PITCH;
 
-    for (int i = 0; i < strlen(message) && i < LINE_WIDTH - pos; i++) {
-        int index = message[i];
+void writeLine(int line, char *text) {
+    int target = 0;
+    int i;
+
+    for (i = 0; i < strlen(text) && i < LINE_WIDTH; i++) {
+        int index = text[i];
         for (int col = 0; col < FONT_WIDTH_16; col++) {
-            line_top[start + target] = fontdata_top[index][col];
-            line_bot[start + target] = fontdata_bot[index][col];
+            line_top[target] = fontdata_top[index][col];
+            line_bot[target] = fontdata_bot[index][col];
             target++;
         }
-        line_top[start + target] = line_bot[start + target] = 0x00;
+        line_top[target] = line_bot[target] = 0x00;
+        target++;
+    }
+    for (; i < LINE_WIDTH; i++) {
+        for (int col = 0; col <= FONT_WIDTH_16; col++) {
+            line_top[target] = line_bot[target] = 0x00;
+            target++;
+        }
+        line_top[target] = line_bot[target] = 0x00;
         target++;
     }
 
-    sendPagePos(line * 2,     start, line_top + start, target);
-    sendPagePos(line * 2 + 1, start, line_bot + start, target);
+    sendPagePos(line * 2,     0, line_top, target);
+    sendPagePos(line * 2 + 1, 0, line_bot, target);
+}
+
+void writeHeader(char *header) {
+    writeLine(0, header);
 }
 
 // --------------------------------
@@ -159,13 +172,13 @@ float parseCellar(int length, byte *payload, char *message, char *topic, char *j
 
 struct {
     byte code;
-    int line;
     char name[10];
+    char time[8];
     float (*parser)(int, byte*, char*, char*, char*);
 } Vector[SOURCES] = {
-    {0xBA, 1, "Bal", parseBal},
-    {0xCE, 2, "Cellar", parseCellar},
-    {0xA5, 3, "Test", parseTest}
+    {0xBA, "Bal",    "", parseBal},
+    {0xCE, "Cellar", "", parseCellar},
+    {0xA5, "Test",   "", parseTest}
 };
 
 struct {
@@ -179,26 +192,28 @@ struct {
 } Rx[SOURCES];
 byte payload[MAX_PAYLOAD];
 
+int onScreen = -1;
 void sendMessage(int source) {
-    char line[LINE_WIDTH + 1], topic[20], info[20];
+    char topic[20], info[20];
 
+    onScreen = source;
     sprintf(info, "[%d,%.2f]", Rx[source].rssi, Rx[source].snr);
-    strcat(Rx[source].message, info);
-    sprintf(topic, "%s/%s", MQTT_TOPIC, Vector[source].name);
-    Serial.printf("%s:%s\n", topic, Rx[source].message);
+    sprintf(topic, "%s(0m)", Vector[source].name);
+    Serial.printf("%s:%s %s\n", topic, Rx[source].message, info);
+    writeLine(1, topic);
+    writeLine(2, Rx[source].message);
+    writeLine(3, info);
 #if 0    
     mqttClient.publish(topic, Rx[source].message);
     if (Rx[source].json[0] != 0) {
         mqttClient.publish(Rx[source].topic, Rx[source].json);
     }
-#endif    
+#endif
+    
     char rssi;
     if (Rx[source].rssi > 135) rssi = 1;
     else if (Rx[source].rssi < 55) rssi = 7;
     else rssi = 7 - (Rx[source].rssi - 55) / 16;
-    sprintf(line, "%3.1fV  0m%c%2.0f", Rx[source].battery, CHAR_RSSI + rssi, Rx[source].snr);
-    displayOn();
-    writeDisplay(Vector[source].line, 3, line);
 
     Rx[source].message[0] = 0;
     //mqttClient.loop();
@@ -303,12 +318,6 @@ void setup() {
     WiFi.begin(SSID, PASS);
 
     initDisplay();
-    char name[4];
-    for (int source = 0; source < SOURCES; source++) {
-        strncpy(name, Vector[source].name, 3);
-        name[3] = 0;
-        writeDisplay(Vector[source].line, 0, name);
-    }
     
     SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
     pinMode(LORA_INT, INPUT_PULLUP);
@@ -348,7 +357,7 @@ void setup() {
     mqttClient.publish(MQTT_TOPIC, header, true, 0);
 #endif
     Serial.println("MQTT connected");
-    writeDisplay(0, 0, header);
+    writeHeader(header);
 
     Serial.println("Listening...");
     LoRa.onReceive(onReceive);
@@ -363,37 +372,38 @@ unsigned long millisElapsed(unsigned long end, unsigned long start) {
 }
 
 void loop() {
-    static unsigned long lastUpdate_ms = millis();
-
+   static unsigned long lastUpdate_ms = millis();
+    
     for (int source = 0; source < SOURCES; source ++) {
         if (Rx[source].message[0] != 0) {
             sendMessage(source);
         }
     }
 
-    char timeElapsed[4];
-    unsigned long seconds;
-    if (millisElapsed(millis(), lastUpdate_ms) > 1000L * 60) {
-        for (int source = 0; source < SOURCES; source ++) {
-            seconds = millisElapsed(millis(), Rx[source].millis) / 1000;
+    if (onScreen >= 0) {
+        unsigned long seconds;
+        if (millisElapsed(millis(), lastUpdate_ms) > 1000L * 60) {
+            seconds = millisElapsed(millis(), Rx[onScreen].millis) / 1000;
             if (seconds >= 3600 * 24 * 7) {
-                strcpy(timeElapsed, "Inf");
+                strcpy(Vector[onScreen].time, "Inf");
             } else if (seconds >= 3600 * 24 * 7) {
-                sprintf(timeElapsed, "%2dw", seconds / 3600 / 24 / 7);
+                sprintf(Vector[onScreen].time, "%2dw", seconds / 3600 / 24 / 7);
             } else if (seconds >= 3600 * 24) {
-                sprintf(timeElapsed, "%2dd", seconds / 3600 / 24);
+                sprintf(Vector[onScreen].time, "%2dd", seconds / 3600 / 24);
             } else if (seconds >= 3600) {
-                sprintf(timeElapsed, "%2dh", seconds / 3600);
-            } else if (seconds >= 60) {
-                sprintf(timeElapsed, "%2dm", seconds / 60);
+                sprintf(Vector[onScreen].time, "%2dh", seconds / 3600);
             } else {
-                continue;
+                sprintf(Vector[onScreen].time, "%2dm", seconds / 60);
             }
-            writeDisplay(Vector[source].line, 8, timeElapsed);
+            
+            char topic[20];
+            sprintf(topic, "%s(%s)", Vector[onScreen].name, Vector[onScreen].time);
+            writeLine(1, topic);
+        
+            lastUpdate_ms = millis();
         }
-        lastUpdate_ms = millis();
     }
-
+    
     if (screenOn) {
         if (millisElapsed(millis(), screensaver) > 1000L * 30) {
             displayOff();
