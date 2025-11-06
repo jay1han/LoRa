@@ -219,9 +219,10 @@ void sendMessage(int source) {
     mqttClient.loop();
 }
 
-void skipMessage() {
+void skipMessage(bool reboot) {
     while(LoRa.available() > 0) LoRa.read();
     digitalWrite(PIN_LED, !screenOn);
+    if (reboot) ESP.restart();
 }
 
 // CONTINUOUS, this is called from ISR!!!
@@ -229,20 +230,20 @@ void onReceive(int packetSize) {
     digitalWrite(PIN_LED, screenOn);
     
     if (packetSize == 0 || packetSize > MAX_PAYLOAD) {
-        skipMessage();
+        skipMessage(true);
         return;
     }
     
     byte header = LoRa.read();
     if (header != ID_HEADER) {
-        skipMessage();
+        skipMessage(true);
         return;
     }
     
     byte senderCode = LoRa.read();
     int length = LoRa.available();
     if (length != packetSize - 2) {
-        skipMessage();
+        skipMessage(true);
         return;
     }
     
@@ -250,7 +251,7 @@ void onReceive(int packetSize) {
     for (source = 0; source < SOURCES; source++) {
         if (senderCode == Vector[source].code) {
             if (Rx[source].message[0] != 0) {
-                skipMessage();
+                skipMessage(true);
                 return;
             }
 
@@ -259,7 +260,12 @@ void onReceive(int packetSize) {
                 payload[i] = LoRa.read();
             }
             Rx[source].json[0] = 0;
-            Rx[source].battery = Vector[source].parser(length, payload, Rx[source].message, Rx[source].topic, Rx[source].json);
+            float battery = Vector[source].parser(length, payload, Rx[source].message, Rx[source].topic, Rx[source].json);
+            if (battery == 0.0) {
+                skipMessage(true);
+                return;
+            }
+            Rx[source].battery = battery;
             Rx[source].rssi = -LoRa.packetRssi();
             Rx[source].snr  = LoRa.packetSnr();
             break;
@@ -267,11 +273,11 @@ void onReceive(int packetSize) {
     }
     
     if (source == SOURCES) {
-        skipMessage();
+        skipMessage(true);
         return;
     }
 
-    skipMessage();
+    skipMessage(false);
 }
 
 float parseTest(int length, byte *payload, char *message, char *topic, char *json) {
@@ -294,6 +300,10 @@ float parseCellar(int length, byte *payload, char *message, char *topic, char *j
     float battery = (float)payload[0] / 10.0;
     float temperature = (float)payload[1] + (float)payload[2] / 10.0;
     float humidity = (float)payload[3];
+
+    if (battery > 5.0 || battery < 2.0) return 0.0;
+    if (temperature > 50.0 || temperature <= 0.0) return 0.0;
+    if (humidity >= 100.0 || humidity <= 10.0) return 0.0;
     
     sprintf(message, "%3.1fV %.1fC %.0f%%", battery, temperature, humidity);
     strcpy(topic, HASS_TOPIC);

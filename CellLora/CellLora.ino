@@ -166,14 +166,8 @@ void setup() {
     int humi_int = int(humidity);
     payload[3] = humi_int;
 
-// Send LoRa packet 3 times
-    Serial.println("Send packet #1");
-    sendPacket(payload, 4);
-    delay(1000);
-    Serial.println("Send packet #2");
-    sendPacket(payload, 4);
-    delay(1000);
-    Serial.println("Send packet #3");
+// Send LoRa packet
+    Serial.println("Send packet");
     sendPacket(payload, 4);
 
 // All good, sleep for full period
