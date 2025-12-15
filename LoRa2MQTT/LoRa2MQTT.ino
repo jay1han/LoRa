@@ -381,12 +381,14 @@ unsigned long millisElapsed(unsigned long end, unsigned long start) {
     return result;
 }
 
+bool messageSent = false;
 void loop() {
    static unsigned long lastUpdate_ms = millis();
     
     for (int source = 0; source < SOURCES; source ++) {
         if (Rx[source].message[0] != 0) {
             sendMessage(source);
+            messageSent = true;
         }
     }
 
@@ -431,4 +433,5 @@ void loop() {
     mqttClient.loop();
 
     sleep(1);
+    if (messageSent) ESP.restart();
 }
