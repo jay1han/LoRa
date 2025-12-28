@@ -329,6 +329,14 @@ void setup() {
 
     initDisplay();
     
+    pinMode(LORA_RST, OUTPUT);
+    digitalWrite(LORA_RST, HIGH);
+    delay(200);
+    digitalWrite(LORA_RST, LOW);
+    delay(200);
+    digitalWrite(LORA_RST, HIGH);
+    delay(50);
+  
     SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
     pinMode(LORA_INT, INPUT_PULLUP);
     LoRa.setPins(LORA_SS, LORA_RST, LORA_INT);
