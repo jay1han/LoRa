@@ -116,9 +116,20 @@ byte nybble_hi(byte original) {
 
 unsigned char lines[4][LCD_H_RES];
 
-void writeBig(int line, char *text) {
+void writeBig(char *text) {
+    static int antiburn = 0;
     int target = 0;
     int i;
+
+    for (target = 0; target < LCD_H_RES; target++) {
+        lines[0][target] = lines[1][target] = lines[2][target] = lines[3][target] = 0x00;
+    }
+    for (int sub = 0; sub < 4; sub++) {
+        sendPagePos(antiburn * 4 + sub, 0, lines[sub], target);
+    }
+    
+    antiburn = 1 - antiburn;
+    target = 0;
 
     for (i = 0; i < strlen(text) && i < LINE_WIDTH; i++) {
         int index = text[i];
@@ -140,12 +151,8 @@ void writeBig(int line, char *text) {
         target++;
     }
     
-    for (; target < LCD_H_RES; target++) {
-        lines[0][target] = lines[1][target] = lines[2][target] = lines[3][target] = 0x00;
-    }
-
     for (int sub = 0; sub < 4; sub++) {
-        sendPagePos(line * 4 + sub, 0, lines[sub], target);
+        sendPagePos(antiburn * 4 + sub, 0, lines[sub], target);
     }
 }
 
@@ -170,7 +177,6 @@ byte payload[MAX_PAYLOAD];
 #define HASS_JSON   "{\"temperature\": %.1f, \"humidity\": %.0f, \"voltage\": %.1f}"
 
 void sendMessage() {
-    writeBig(1, Rx.message);
     mqttClient.publish(MQTT_TOPIC, Rx.message);
     mqttClient.publish(HASS_TOPIC, Rx.json);
     mqttClient.loop();
@@ -253,7 +259,7 @@ void setup() {
     WiFi.begin(SSID, PASS);
 
     initDisplay();
-    writeBig(0, "OK");
+    writeBig("OK");
     
     pinMode(LORA_RST, OUTPUT);
     digitalWrite(LORA_RST, HIGH);
@@ -311,22 +317,27 @@ void setup() {
 
 bool messageSent = false;
 void loop() {
-    char elapsed[8];
+    static int lastUpdate = 0;
     
     int minutes = millis() / 60000;
-    if (minutes > 60) {
-        int hours = minutes / 60;
-        if (hours > 24) {
-            int days = hours / 24;
-            if (days >= 100) ESP.restart();
-            sprintf(elapsed, "%dd%hh", days, hours);
+    if (minutes != lastUpdate) {
+        lastUpdate = minutes;
+        
+        char elapsed[8];
+        if (minutes > 60) {
+            int hours = minutes / 60;
+            if (hours > 24) {
+                int days = hours / 24;
+                if (days >= 100) ESP.restart();
+                sprintf(elapsed, "%dd%hh", days, hours);
+            } else {
+                sprintf(elapsed, "%dh%02dm", hours, minutes);
+            }
         } else {
-            sprintf(elapsed, "%dh%02dm", hours, minutes);
+            sprintf(elapsed, "%dm", minutes);
         }
-    } else {
-        sprintf(elapsed, "%dm", minutes);
+        writeBig(elapsed);
     }
-    writeBig(0, elapsed);
     
     if (isReceived) {
        sendMessage();
