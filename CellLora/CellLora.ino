@@ -21,8 +21,8 @@ char VERSION[20] = "CellLora v100";
 #define LORA_RST   7
 #define LORA_INT   -1
 
-#define SLEEP_SECONDS_FULL  3600 // Every hour
-#define SLEEP_SECONDS_RETRY 30 // This should be 60 normally
+#define SLEEP_SECONDS_FULL  (15 * 60) // Every 15 minutes
+#define SLEEP_SECONDS_RETRY 60        // This should be 60 normally
 unsigned int sleepSeconds;
 #define ID_HEADER    0x92
 #define ID_CELLAR    0xCE

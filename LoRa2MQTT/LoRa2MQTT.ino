@@ -116,20 +116,9 @@ byte nybble_hi(byte original) {
 
 unsigned char lines[4][LCD_H_RES];
 
-void writeBig(char *text) {
-    static int antiburn = 0;
+void writeBig(int line, char *text) {
     int target = 0;
     int i;
-
-    for (target = 0; target < LCD_H_RES; target++) {
-        lines[0][target] = lines[1][target] = lines[2][target] = lines[3][target] = 0x00;
-    }
-    for (int sub = 0; sub < 4; sub++) {
-        sendPagePos(antiburn * 4 + sub, 0, lines[sub], target);
-    }
-    
-    antiburn = 1 - antiburn;
-    target = 0;
 
     for (i = 0; i < strlen(text) && i < LINE_WIDTH; i++) {
         int index = text[i];
@@ -151,8 +140,12 @@ void writeBig(char *text) {
         target++;
     }
     
+    for (; target < LCD_H_RES; target++) {
+        lines[0][target] = lines[1][target] = lines[2][target] = lines[3][target] = 0x00;
+    }
+
     for (int sub = 0; sub < 4; sub++) {
-        sendPagePos(antiburn * 4 + sub, 0, lines[sub], target);
+        sendPagePos(line * 4 + sub, 0, lines[sub], target);
     }
 }
 
@@ -178,38 +171,42 @@ byte payload[MAX_PAYLOAD];
 
 void sendMessage() {
     mqttClient.publish(MQTT_TOPIC, Rx.message);
+    mqttClient.loop();
+    sleep(1);
     mqttClient.publish(HASS_TOPIC, Rx.json);
     mqttClient.loop();
+    sleep(1);
 }
 
-void skipMessage(bool reboot) {
+char messageText[10];
+void skipMessage(char *text) {
     while(LoRa.available() > 0) LoRa.read();
-    if (reboot) ESP.restart();
+    strcpy(messageText, text);
 }
 
 // CONTINUOUS, this is called from ISR!!!
 bool isReceived = false;
 void onReceive(int packetSize) {
     if (packetSize == 0 || packetSize > MAX_PAYLOAD) {
-        skipMessage(true);
+        skipMessage("SIZE");
         return;
     }
     
     byte header = LoRa.read();
     if (header != ID_HEADER) {
-        skipMessage(true);
+        skipMessage("HEADER");
         return;
     }
     
     byte senderCode = LoRa.read();
     if (senderCode != ID_CELLAR) {
-        skipMessage(true);
+        skipMessage("CODE");
         return;
     }
     
     int length = LoRa.available();
     if (length != packetSize - 2) {
-        skipMessage(true);
+        skipMessage("PAYLOAD");
         return;
     }
     
@@ -234,12 +231,12 @@ void onReceive(int packetSize) {
         Rx.rssi = -LoRa.packetRssi();
         Rx.snr  = LoRa.packetSnr();
     
-        skipMessage(false);
+        skipMessage("Parsed");
         isReceived = true;
     } while(false);
     
     if (!isReceived) {
-        skipMessage(true);
+        skipMessage("DATA");
     }
 }
 
@@ -248,27 +245,27 @@ void onReceive(int packetSize) {
 
 void setup() {
     Serial.begin(115200);
-    delay(1000);
-    Serial.print("Starting ");
-    Serial.println(VERSION);
-
+    
     pinMode(PIN_LED, OUTPUT);
     digitalWrite(PIN_LED, LOW);
-    pinMode(PIN_BUTTON, INPUT_PULLUP);
-    
-    WiFi.begin(SSID, PASS);
-
-    initDisplay();
-    writeBig("OK");
-    
     pinMode(LORA_RST, OUTPUT);
     digitalWrite(LORA_RST, HIGH);
     delay(200);
     digitalWrite(LORA_RST, LOW);
     delay(200);
     digitalWrite(LORA_RST, HIGH);
-    delay(50);
-  
+    delay(200);
+    
+    Serial.print("Starting ");
+    Serial.println(VERSION);
+
+    pinMode(PIN_BUTTON, INPUT_PULLUP);
+    
+    WiFi.begin(SSID, PASS);
+
+    initDisplay();
+    writeBig(0, "OK");
+
     SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
     pinMode(LORA_INT, INPUT_PULLUP);
     LoRa.setPins(LORA_SS, LORA_RST, LORA_INT);
@@ -317,17 +314,28 @@ void setup() {
 
 bool messageSent = false;
 void loop() {
+    static int lastReceived = 0;
     static int lastUpdate = 0;
     
-    int minutes = millis() / 60000;
+    if (isReceived) {
+       sendMessage();
+       writeBig(1, messageText);
+       messageText[0] = 0;
+       lastReceived = millis() / 60000;
+       isReceived = false;
+    }
+
+    int minutes = millis() / 60000 - lastReceived;
     if (minutes != lastUpdate) {
         lastUpdate = minutes;
         
         char elapsed[8];
         if (minutes > 60) {
             int hours = minutes / 60;
+            minutes %= 60;
             if (hours > 24) {
                 int days = hours / 24;
+                hours %= 24;
                 if (days >= 100) ESP.restart();
                 sprintf(elapsed, "%dd%hh", days, hours);
             } else {
@@ -336,13 +344,9 @@ void loop() {
         } else {
             sprintf(elapsed, "%dm", minutes);
         }
-        writeBig(elapsed);
+        writeBig(0, elapsed);
     }
     
-    if (isReceived) {
-       sendMessage();
-    }
-
     if (!mqttClient.connected()) {
       Serial.println("MQTT failure");
       delay(1000);
@@ -351,5 +355,5 @@ void loop() {
     mqttClient.loop();
     sleep(1);
 
-    if (isReceived) ESP.restart();
+//    if (isReceived) ESP.restart();
 }
