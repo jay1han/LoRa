@@ -154,15 +154,14 @@ void writeBig(int line, char *text) {
 
 #define MAX_PAYLOAD  256
 
-#define ID_HEADER    0x92
-#define ID_CELLAR    0xCE
+#define ID_CELLAR1   0xCE
+#define ID_CELLAR2   0xCF
 
 struct {
     char message[20];
     char json[256];
     float battery;
-    int rssi;
-    float snr;
+    int rssi, snr;
 } Rx;
 byte payload[MAX_PAYLOAD];
 
@@ -192,20 +191,14 @@ void onReceive(int packetSize) {
         return;
     }
     
-    byte header = LoRa.read();
-    if (header != ID_HEADER) {
-        skipMessage("HEADER");
-        return;
-    }
-    
     byte senderCode = LoRa.read();
-    if (senderCode != ID_CELLAR) {
+    if (senderCode != ID_CELLAR1 && senderCode != ID_CELLAR2) {
         skipMessage("CODE");
         return;
     }
     
     int length = LoRa.available();
-    if (length != packetSize - 2) {
+    if (length != packetSize - 1) {
         skipMessage("PAYLOAD");
         return;
     }
@@ -229,9 +222,11 @@ void onReceive(int packetSize) {
         
         Rx.battery = battery;
         Rx.rssi = -LoRa.packetRssi();
-        Rx.snr  = LoRa.packetSnr();
-    
-        skipMessage("Parsed");
+        Rx.snr  = LoRa.packetSnr() * 10.0;
+
+        char parsed[12];
+        sprintf(parsed, "%3d %3d", Rx.rssi, Rx.snr);
+        skipMessage(parsed);
         isReceived = true;
     } while(false);
     
@@ -256,6 +251,7 @@ void setup() {
     digitalWrite(LORA_RST, HIGH);
     delay(200);
     
+    delay(1000);
     Serial.print("Starting ");
     Serial.println(VERSION);
 
@@ -264,7 +260,6 @@ void setup() {
     WiFi.begin(SSID, PASS);
 
     initDisplay();
-    writeBig(0, "OK");
 
     SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
     pinMode(LORA_INT, INPUT_PULLUP);
@@ -276,8 +271,8 @@ void setup() {
         ESP.restart();
     } else {
         LoRa.setSpreadingFactor(12);
-        LoRa.setSignalBandwidth(31.25E3);
         LoRa.setCodingRate4(8);
+        LoRa.enableCrc();
         Serial.println("LoRa initialized");
     }
 
@@ -308,6 +303,8 @@ void setup() {
     Serial.println("MQTT connected");
 
     Serial.println("Listening...");
+    writeBig(0, "OK");
+    
     LoRa.onReceive(onReceive);
     LoRa.receive();
 }
@@ -316,11 +313,15 @@ bool messageSent = false;
 void loop() {
     static int lastReceived = 0;
     static int lastUpdate = 0;
+
+    if (messageText[0] != 0) {
+       writeBig(1, messageText);
+       Serial.println(messageText);
+       messageText[0] = 0;
+    }
     
     if (isReceived) {
        sendMessage();
-       writeBig(1, messageText);
-       messageText[0] = 0;
        lastReceived = millis() / 60000;
        isReceived = false;
     }

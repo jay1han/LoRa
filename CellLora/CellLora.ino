@@ -22,19 +22,18 @@ char VERSION[20] = "CellLora v100";
 #define LORA_INT   -1
 
 #define SLEEP_SECONDS_FULL  (15 * 60) // Every 15 minutes
-#define SLEEP_SECONDS_RETRY 60        // This should be 60 normally
+#define SLEEP_SECONDS_RETRY 60
 unsigned int sleepSeconds;
-#define ID_HEADER    0x92
-#define ID_CELLAR    0xCE
+#define ID_CELLAR1   0xCE
+#define ID_CELLAR2   0xCF
 
 // Send LoRa packet
-bool sendPacket(byte *payload, int size) {
+bool sendPacket1(byte id, byte *payload, int size) {
     if (LoRa.beginPacket() == 0) {
         Serial.println("LoRa can't start packet");
         return false;
     } else {
-        LoRa.write(ID_HEADER);
-        LoRa.write(ID_CELLAR);
+        LoRa.write(id);
 
         for (int i = 0; i < size; i++) {
             LoRa.write(payload[i]);
@@ -47,6 +46,13 @@ bool sendPacket(byte *payload, int size) {
     }
     
     return true;
+}
+
+bool sendPacket(byte *payload, int size) {
+    if (sendPacket1(ID_CELLAR1, payload, size)) {
+        sleep(1);
+        return sendPacket1(ID_CELLAR2, payload, size);
+    } else return false;
 }
 
 // Everything happens in setup()
@@ -67,10 +73,9 @@ void setup() {
         Serial.println("LoRa begin fail");
         return;
     } else {
-        LoRa.setTxPower(20);
         LoRa.setSpreadingFactor(12);
-        LoRa.setSignalBandwidth(31.25E3);
         LoRa.setCodingRate4(8);
+        LoRa.enableCrc();
         Serial.println("LoRa init OK");
     }
 
@@ -168,7 +173,7 @@ void setup() {
 
 // Send LoRa packet
     Serial.println("Send packet");
-    sendPacket(payload, 4);
+    if (!sendPacket(payload, 4)) return;
 
 // All good, sleep for full period
     sleepSeconds = SLEEP_SECONDS_FULL;
