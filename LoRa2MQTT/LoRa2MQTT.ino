@@ -179,7 +179,7 @@ void sendMessage() {
 
 char messageText[10];
 void skipMessage(char *text) {
-    while(LoRa.available() > 0) LoRa.read();
+    while(LoRa.peek() >= 0) LoRa.read();
     strcpy(messageText, text);
 }
 
@@ -354,7 +354,4 @@ void loop() {
       ESP.restart();
     }
     mqttClient.loop();
-    sleep(1);
-
-//    if (isReceived) ESP.restart();
 }
