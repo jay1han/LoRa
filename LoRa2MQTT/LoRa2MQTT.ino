@@ -68,6 +68,36 @@ void ssd1306_cmd(unsigned char cmd) {
     Wire.endTransmission();
 }
 
+void screenOn(bool on) {
+    ssd1306_cmd(0x81);
+    if (on) ssd1306_cmd(0xFF);
+    else ssd1306_cmd(0x00);
+}
+
+void screenSaver(bool toggle) {
+    static unsigned long lastOn = millis();
+    static bool state = true;
+
+    if (toggle) {
+        if (!state) {
+            screenOn(true);
+            state = true;
+            lastOn = millis() / 1000;
+        } else {
+            screenOn(false);
+            state = false;
+        }
+    } else {
+        if (state) {
+            unsigned long now = millis() / 1000;
+            if (now - lastOn > 60) {
+                screenOn(false);
+                state = false;
+            }
+        }
+    }
+}
+
 void sendPagePos(int page, int pos, unsigned char *thisBuffer, int length) {
     ssd1306_cmd(0xB0 | page);
     ssd1306_cmd(0x00 | (pos & 0x0F));
@@ -309,6 +339,7 @@ void setup() {
 
     Serial.println("Listening...");
     writeBig(0, "OK");
+    screenSaver(false);
     
     LoRa.onReceive(onReceive);
     LoRa.receive();
@@ -318,6 +349,7 @@ bool messageSent = false;
 void loop() {
     static int lastReceived = 0;
     static int lastUpdate = -1;
+    static int button = 0;
 
     if (isReceived) {
         sendMessage();
@@ -325,6 +357,11 @@ void loop() {
         writeBig(1, dataText);
         Serial.println(dataText);
         isReceived = false;
+    }
+
+    if (digitalRead(PIN_BUTTON) != button) {
+        button = 1 - button;
+        if (button) screenSaver(true);
     }
     
     int minutes = millis() / 60000 - lastReceived;
@@ -348,6 +385,13 @@ void loop() {
       sleep(1);
       ESP.restart();
     }
-    
+
+    if (lastReceived > 60 * 24 * 30) {
+      Serial.println("Sanitary reboot");
+      sleep(1);
+      ESP.restart();
+    }
+
+    screenSaver(false);
     mqttClient.loop();
 }
