@@ -181,8 +181,9 @@ char messageText[8];
 char dataText[8];
 void skipMessage(char *text) {
     while(LoRa.peek() >= 0) LoRa.read();
-    if (text != NULL) strcpy(messageText, text);
-    messageText[5] = 0;
+    if (text != NULL) {
+        strcpy(messageText, text);
+    }
 }
 
 // CONTINUOUS, this is called from ISR!!!
@@ -338,7 +339,10 @@ void loop() {
         lastUpdate = minutes;
         
         sprintf(timeText, "%2d %s", minutes, messageText);
-        messageText[0] = 0;
+        if (messageText[0] != 0) {
+            Serial.println(timeText);
+            messageText[0] = 0;
+        }
         writeBig(0, timeText);
         
         if (minutes > 60) {
