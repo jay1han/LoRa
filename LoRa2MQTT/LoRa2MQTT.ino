@@ -152,14 +152,14 @@ void writeBig(int line, char *text) {
 // --------------------------------
 // Global variables shared with ISR
 
-#define MAX_PAYLOAD  256
+#define MAX_PAYLOAD  16
 
 #define ID_CELLAR1   0xCE
 #define ID_CELLAR2   0xCF
 
 struct {
-    char message[20];
-    char json[256];
+    char message[16];
+    char json[128];
     float battery;
     int rssi, snr;
 } Rx;
@@ -177,15 +177,22 @@ void sendMessage() {
     sleep(1);
 }
 
-char messageText[10];
+char messageText[8];
+char dataText[8];
 void skipMessage(char *text) {
     while(LoRa.peek() >= 0) LoRa.read();
-    strcpy(messageText, text);
+    if (text != NULL) strcpy(messageText, text);
+    messageText[5] = 0;
 }
 
 // CONTINUOUS, this is called from ISR!!!
 bool isReceived = false;
 void onReceive(int packetSize) {
+    if (isReceived) {
+        skipMessage("DUP");
+        return;
+    }
+    
     if (packetSize == 0 || packetSize > MAX_PAYLOAD) {
         skipMessage("SIZE");
         return;
@@ -199,7 +206,7 @@ void onReceive(int packetSize) {
     
     int length = LoRa.available();
     if (length != packetSize - 1) {
-        skipMessage("PAYLOAD");
+        skipMessage("PAYL");
         return;
     }
     
@@ -224,9 +231,8 @@ void onReceive(int packetSize) {
         Rx.rssi = -LoRa.packetRssi();
         Rx.snr  = LoRa.packetSnr() * 10.0;
 
-        char parsed[12];
-        sprintf(parsed, "%3d %3d", Rx.rssi, Rx.snr);
-        skipMessage(parsed);
+        sprintf(dataText, "%3d %3d", Rx.rssi, Rx.snr);
+        skipMessage("");
         isReceived = true;
     } while(false);
     
@@ -260,6 +266,7 @@ void setup() {
     WiFi.begin(SSID, PASS);
 
     initDisplay();
+    writeBig(0, "START");
 
     SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
     pinMode(LORA_INT, INPUT_PULLUP);
@@ -267,8 +274,8 @@ void setup() {
 
     if (!LoRa.begin(433E6)) {
         Serial.println("LoRa begin fail");
+        sleep(1);
         delay(1000);
-        ESP.restart();
     } else {
         LoRa.setSpreadingFactor(12);
         LoRa.setCodingRate4(8);
@@ -312,45 +319,38 @@ void setup() {
 bool messageSent = false;
 void loop() {
     static int lastReceived = 0;
-    static int lastUpdate = 0;
+    static int lastUpdate = -1;
 
-    if (messageText[0] != 0) {
-       writeBig(1, messageText);
-       Serial.println(messageText);
-       messageText[0] = 0;
-    }
-    
     if (isReceived) {
        sendMessage();
        lastReceived = millis() / 60000;
        isReceived = false;
     }
+    if (dataText[0] != 0) {
+        writeBig(1, dataText);
+        Serial.println(dataText);
+        dataText[0] = 0;
+    }
 
     int minutes = millis() / 60000 - lastReceived;
-    if (minutes != lastUpdate) {
+    if (minutes != lastUpdate || messageText[0] != 0) {
+        char timeText[8];
         lastUpdate = minutes;
         
-        char elapsed[8];
+        sprintf(timeText, "%2d %s", minutes, messageText);
+        messageText[0] = 0;
+        writeBig(0, timeText);
+        
         if (minutes > 60) {
-            int hours = minutes / 60;
-            minutes %= 60;
-            if (hours > 24) {
-                int days = hours / 24;
-                hours %= 24;
-                if (days >= 100) ESP.restart();
-                sprintf(elapsed, "%dd%hh", days, hours);
-            } else {
-                sprintf(elapsed, "%dh%02dm", hours, minutes);
-            }
-        } else {
-            sprintf(elapsed, "%dm", minutes);
+            Serial.println("No data");
+            sleep(1);
+            ESP.restart();
         }
-        writeBig(0, elapsed);
     }
     
     if (!mqttClient.connected()) {
       Serial.println("MQTT failure");
-      delay(1000);
+      sleep(1);
       ESP.restart();
     }
     mqttClient.loop();
