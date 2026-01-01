@@ -171,10 +171,8 @@ byte payload[MAX_PAYLOAD];
 void sendMessage() {
     mqttClient.publish(MQTT_TOPIC, Rx.message);
     mqttClient.loop();
-    sleep(1);
     mqttClient.publish(HASS_TOPIC, Rx.json);
     mqttClient.loop();
-    sleep(1);
 }
 
 char messageText[8];
@@ -275,7 +273,6 @@ void setup() {
 
     if (!LoRa.begin(433E6)) {
         Serial.println("LoRa begin fail");
-        sleep(1);
         delay(1000);
     } else {
         LoRa.setSpreadingFactor(12);
@@ -323,27 +320,21 @@ void loop() {
     static int lastUpdate = -1;
 
     if (isReceived) {
-       sendMessage();
-       lastReceived = millis() / 60000;
-       isReceived = false;
-    }
-    if (dataText[0] != 0) {
+        sendMessage();
+        lastReceived = millis() / 60000;
         writeBig(1, dataText);
         Serial.println(dataText);
-        dataText[0] = 0;
+        isReceived = false;
     }
-
+    
     int minutes = millis() / 60000 - lastReceived;
     if (minutes != lastUpdate || messageText[0] != 0) {
         char timeText[8];
         lastUpdate = minutes;
         
         sprintf(timeText, "%2d %s", minutes, messageText);
-        if (messageText[0] != 0) {
-            Serial.println(timeText);
-            messageText[0] = 0;
-        }
         writeBig(0, timeText);
+        if (messageText[0] != 0) Serial.println(timeText);
         
         if (minutes > 60) {
             Serial.println("No data");
@@ -357,5 +348,6 @@ void loop() {
       sleep(1);
       ESP.restart();
     }
+    
     mqttClient.loop();
 }

@@ -183,6 +183,7 @@ void setup() {
 void loop() {
     LoRa.sleep();
     digitalWrite(LORA_POWER, LOW);
+    
     uint64_t sleepTime = (sleepSeconds * 1000000L) - (millis() - processTime + 1) * 1000L;
     Serial.printf("Processing time %d ms, sleep for %ld seconds\n",
                   millis() - processTime, sleepTime / 1000000);
