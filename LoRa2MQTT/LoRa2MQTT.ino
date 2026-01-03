@@ -201,8 +201,16 @@ byte payload[MAX_PAYLOAD];
 void sendMessage() {
     mqttClient.publish(MQTT_TOPIC, Rx.message);
     mqttClient.loop();
-    mqttClient.publish(HASS_TOPIC, Rx.json);
-    mqttClient.loop();
+    if (!mqttClient.publish(HASS_TOPIC, Rx.json)) {
+        Serial.println("Error publishing");
+        sleep(1);
+        ESP.restart();        
+    }
+    if (!mqttClient.loop()) {
+        Serial.println("Loop error");
+        sleep(1);
+        ESP.restart();        
+    }
 }
 
 char messageText[8];
@@ -260,7 +268,7 @@ void onReceive(int packetSize) {
         Rx.rssi = -LoRa.packetRssi();
         Rx.snr  = LoRa.packetSnr() * 10.0;
 
-        sprintf(dataText, "%3d %3d", Rx.rssi, Rx.snr);
+        sprintf(dataText, "%3d%-4d", Rx.rssi, Rx.snr);
         skipMessage("");
         isReceived = true;
     } while(false);
@@ -284,7 +292,6 @@ void setup() {
     digitalWrite(LORA_RST, LOW);
     delay(200);
     digitalWrite(LORA_RST, HIGH);
-    delay(200);
     
     delay(1000);
     Serial.print("Starting ");
@@ -303,7 +310,8 @@ void setup() {
 
     if (!LoRa.begin(433E6)) {
         Serial.println("LoRa begin fail");
-        delay(1000);
+        sleep(1);
+        ESP.restart();
     } else {
         LoRa.setSpreadingFactor(12);
         LoRa.setCodingRate4(8);
@@ -323,14 +331,14 @@ void setup() {
     }
     
     char ip[30] = "";
-    strcat(ip, (char*)WiFi.localIP().toString().c_str());
+    strcpy(ip, (char*)WiFi.localIP().toString().c_str());
     Serial.println(ip);
 
     mqttClient.begin(MQTT_SERVER, wifiClient);
     mqttClient.setKeepAlive(3600);
     if (!mqttClient.connect(MQTT_CLIENT, MQTT_USER, MQTT_PASSWD)) {
         Serial.println("Can't connect to MQTT broker");
-        delay(1000);
+        sleep(1);
         ESP.restart();
     }
     mqttClient.publish(MQTT_TOPIC, ip, true, 0);
@@ -393,5 +401,9 @@ void loop() {
     }
 
     screenSaver(false);
-    mqttClient.loop();
+    if (!mqttClient.loop()) {
+        Serial.println("Loop error");
+        sleep(1);
+        ESP.restart();        
+    }
 }
