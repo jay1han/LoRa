@@ -184,8 +184,8 @@ void writeBig(int line, char *text) {
 
 #define MAX_PAYLOAD  16
 
-#define ID_CELLAR1   0xCE
-#define ID_CELLAR2   0xCF
+#define ID_CELLAR   0xCE
+#define ID_ERROR    0x55
 
 struct {
     char message[16];
@@ -222,27 +222,10 @@ void skipMessage(char *text) {
     }
 }
 
-// CONTINUOUS, this is called from ISR!!!
 bool isReceived = false;
-void onReceive(int packetSize) {
-    if (isReceived) {
-        skipMessage("DUP");
-        return;
-    }
-    
-    if (packetSize == 0 || packetSize > MAX_PAYLOAD) {
-        skipMessage("SIZE");
-        return;
-    }
-    
-    byte senderCode = LoRa.read();
-    if (senderCode != ID_CELLAR1 && senderCode != ID_CELLAR2) {
-        skipMessage("CODE");
-        return;
-    }
-    
+void parseMessage(int packetSize) {
     int length = LoRa.available();
-    if (length != packetSize - 1) {
+    if (length != packetSize) {
         skipMessage("PAYL");
         return;
     }
@@ -277,6 +260,59 @@ void onReceive(int packetSize) {
         skipMessage("DATA");
     }
 }
+
+/* Error codes
+   1 = AHT10 Init
+   2 = AHT10 Dead
+   3 = AHT10 I2C
+   4 = AHT10 I/O
+*/
+char ErrorText[5][2][8] = {
+    {"ERROR", "CODING"},
+    {"AHT10", "Init"},
+    {"AHT10", "Dead"},
+    {"AHT10", "I2C"},
+    {"AHT10", "I/O"}
+};
+
+bool isError = false;
+int errorCode = 0;
+void parseError(int packetSize) {
+    isError = true;
+    errorCode = 0;
+    
+    int length = LoRa.available();
+    if (length != packetSize) {
+        skipMessage("PAYL");
+        return;
+    }
+    
+    for (int i = 0; i < length; i++) {
+        payload[i] = LoRa.read();
+    }
+
+    errorCode = payload[0];
+}
+
+// CONTINUOUS, this is called from ISR!!!
+void onReceive(int packetSize) {
+    if (isReceived) {
+        skipMessage("DUP");
+        return;
+    }
+    
+    if (packetSize == 0 || packetSize > MAX_PAYLOAD) {
+        isError = true;
+        errorCode = 0;
+        return;
+    }
+
+    isError = false;
+    byte senderCode = LoRa.read();
+    if (senderCode == ID_CELLAR) parseMessage(packetSize - 1);
+    else parseError(packetSize - 1);
+}
+
 
 // -----------------
 // Setup code proper
@@ -359,6 +395,24 @@ void loop() {
     static int lastUpdate = -1;
     static int button = 0;
 
+    if (isError) {
+        if (errorCode >= 1 && errorCode <= 4) {
+            writeBig(0, ErrorText[errorCode][0]);
+            writeBig(1, ErrorText[errorCode][1]);
+            Serial.println(ErrorText[errorCode][0]);
+            Serial.println(ErrorText[errorCode][1]);
+        } else {
+            char code[8];
+            snprintf(code, 7, "%d", errorCode);
+            writeBig(0, "ERROR");
+            writeBig(1, code);
+            Serial.printf("ERROR %d\n", errorCode);
+        }
+
+        isError = false;
+        return;
+    }
+
     if (isReceived) {
         sendMessage();
         lastReceived = millis() / 60000;
@@ -386,6 +440,12 @@ void loop() {
             sleep(1);
             ESP.restart();
         }
+    }
+
+    if (!WiFi.isConnected()) {
+      Serial.println("WiFi disconnected");
+      sleep(1);
+      ESP.restart();
     }
     
     if (!mqttClient.connected()) {

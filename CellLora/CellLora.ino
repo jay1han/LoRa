@@ -4,7 +4,7 @@
 #include <Wire.h>
 #include <Esp.h>
 
-char VERSION[20] = "CellLora v100";
+char VERSION[20] = "CellLora v110";
 
 #define UART_TX    21
 #define UART_RX    2      // with pull-up for strapping
@@ -21,11 +21,11 @@ char VERSION[20] = "CellLora v100";
 #define LORA_RST   7
 #define LORA_INT   -1
 
-#define SLEEP_SECONDS_FULL  (15 * 60) // Every 15 minutes
+#define SLEEP_SECONDS_FULL  (30 * 60) // Every 30 minutes
 #define SLEEP_SECONDS_RETRY 60
 unsigned int sleepSeconds;
-#define ID_CELLAR1   0xCE
-#define ID_CELLAR2   0xCF
+#define ID_CELLAR   0xCE
+#define ID_ERROR    0x55
 
 // Send LoRa packet
 bool sendPacket1(byte id, byte *payload, int size) {
@@ -49,10 +49,24 @@ bool sendPacket1(byte id, byte *payload, int size) {
 }
 
 bool sendPacket(byte *payload, int size) {
-    if (sendPacket1(ID_CELLAR1, payload, size)) {
-        sleep(1);
-        return sendPacket1(ID_CELLAR2, payload, size);
-    } else return false;
+    bool result = false;
+    result = result || sendPacket1(ID_CELLAR, payload, size);
+    sleep(1);
+    result = result || sendPacket1(ID_CELLAR, payload, size);
+    sleep(1);
+    result = result || sendPacket1(ID_CELLAR, payload, size);
+    return result;
+}
+
+#define ERR_AHT10_INIT   1
+#define ERR_AHT10_DEAD   2
+#define ERR_AHT10_I2C    3
+#define ERR_AHT10_IO     4
+
+void error(int code) {
+    byte payload[4];
+    payload[0] = code;
+    sendPacket1(ID_ERROR, payload, 1);
 }
 
 // Everything happens in setup()
@@ -106,14 +120,17 @@ void setup() {
                 Serial.println("OK");
             } else {
                 Serial.println("NG");
+                error(ERR_AHT10_INIT);
                 return;
             }
         } else {
             Serial.println("not responding");
-            return;
+            error(ERR_AHT10_DEAD);
+            return; 
         }
     } else {
         Serial.println("not found");
+        error(ERR_AHT10_I2C);
         return;
     }
 
@@ -130,6 +147,7 @@ void setup() {
     Wire.write(0x00);
     if (Wire.endTransmission() != 0) {
         Serial.println("send command failed");
+        error(ERR_AHT10_IO);
         return;
     } else {
         delay(100);
